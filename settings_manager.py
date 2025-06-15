@@ -50,7 +50,6 @@ class SettingsManager:
             
             # Other settings
             'theme': 'dark',
-            'ftg_position': 'bottom_right',
             'internal_resolution': (1920, 1080),
             
             # Window settings

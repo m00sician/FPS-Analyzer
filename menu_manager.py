@@ -1,111 +1,144 @@
 """
-Menu Management Module für FPS Analyzer - FIXED ABOUT TEXT
-Handles all menu creation and menu actions with corrected branding
+Menu Manager für FPS Analyzer - ENHANCED with Adaptive Video Comparison Feature
+Handles all menu creation and actions including the enhanced comparison creator
 """
+from PyQt6.QtWidgets import QMenuBar, QMessageBox
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QKeySequence
 import cv2
-from PyQt6.QtWidgets import QDialog, QMessageBox
-from PyQt6.QtGui import QAction
 
 class MenuManager:
-    """Manages all menus and menu actions for the FPS Analyzer"""
+    """Manages all application menus and actions"""
     
     def __init__(self, parent):
         self.parent = parent
-        self.menubar = parent.menuBar()
-    
+        self.menubar = None
+        
+        # Store action references for dynamic updates
+        self.resolution_actions = []
+        self.quality_actions = []
+        
     def create_all_menus(self):
-        """Create all menus for the application"""
+        """Create all application menus"""
+        self.menubar = self.parent.menuBar()
+        
         self.create_file_menu()
-        self.create_view_menu()
         self.create_edit_menu()
+        self.create_view_menu()
+        self.create_tools_menu()
         self.create_help_menu()
     
     def create_file_menu(self):
-        """Create File menu with batch processor"""
-        file_menu = self.menubar.addMenu('📁 Datei')
+        """Create File menu with Enhanced Comparison feature"""
+        file_menu = self.menubar.addMenu('📁 &File')
         
-        # Load Video
-        load_video_action = QAction('📹 Video laden...', self.parent)
-        load_video_action.setShortcut('Ctrl+O')
-        load_video_action.triggered.connect(self.parent.browse_input)
-        file_menu.addAction(load_video_action)
-        
-        # ✨ NEW: Batch Processor
-        batch_processor_action = QAction('📦 Batch Processor...', self.parent)
-        batch_processor_action.setShortcut('Ctrl+B')
-        batch_processor_action.triggered.connect(self.open_batch_processor)
-        file_menu.addAction(batch_processor_action)
+        # Open Video
+        open_action = QAction('📹 &Open Video...', self.parent)
+        open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.setStatusTip('Open a video file for analysis')
+        open_action.triggered.connect(self.parent.browse_input)
+        file_menu.addAction(open_action)
         
         file_menu.addSeparator()
         
-        # Export Settings
-        export_settings_action = QAction('💾 Einstellungen exportieren...', self.parent)
-        export_settings_action.triggered.connect(self.export_settings)
-        file_menu.addAction(export_settings_action)
+        # Export Options
+        export_menu = file_menu.addMenu('🎬 &Export')
         
-        # Import Settings
-        import_settings_action = QAction('📂 Einstellungen importieren...', self.parent)
-        import_settings_action.triggered.connect(self.import_settings)
-        file_menu.addAction(import_settings_action)
+        # PNG Alpha Sequence
+        png_export_action = QAction('🎬 PNG Alpha &Sequence...', self.parent)
+        png_export_action.setStatusTip('Export PNG sequence for Premiere Pro')
+        png_export_action.triggered.connect(self.parent.export_png_alpha_sequence)
+        export_menu.addAction(png_export_action)
         
         file_menu.addSeparator()
         
-        # Recent Files (TODO: Implement)
-        recent_menu = file_menu.addMenu('🕒 Zuletzt verwendet')
-        recent_menu.addAction('(Noch keine Dateien)')
+        # Recent Files (placeholder)
+        recent_menu = file_menu.addMenu('🕐 &Recent Files')
+        recent_menu.addAction('(No recent files)')
+        recent_menu.setEnabled(False)
         
         file_menu.addSeparator()
         
         # Exit
-        exit_action = QAction('❌ Programm beenden', self.parent)
-        exit_action.setShortcut('Ctrl+Q')
+        exit_action = QAction('🚪 E&xit', self.parent)
+        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        exit_action.setStatusTip('Exit the application')
         exit_action.triggered.connect(self.parent.close)
         file_menu.addAction(exit_action)
     
+    def create_edit_menu(self):
+        """Create Edit menu"""
+        edit_menu = self.menubar.addMenu('✏️ &Edit')
+        
+        # Settings
+        settings_action = QAction('⚙️ &Settings...', self.parent)
+        settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
+        settings_action.setStatusTip('Open application settings')
+        settings_action.triggered.connect(self.open_settings)
+        edit_menu.addAction(settings_action)
+        
+        edit_menu.addSeparator()
+        
+        # Font Selection
+        fonts_action = QAction('🎨 &Fonts...', self.parent)
+        fonts_action.setShortcut(QKeySequence('Ctrl+F'))
+        fonts_action.setStatusTip('Select OpenCV fonts for overlay')
+        fonts_action.triggered.connect(self.parent.select_opencv_fonts)
+        edit_menu.addAction(fonts_action)
+        
+        # Font Preview
+        if hasattr(self.parent, 'show_font_preview'):
+            font_preview_action = QAction('👁️ Font &Preview...', self.parent)
+            font_preview_action.setShortcut(QKeySequence('Ctrl+Shift+F'))
+            font_preview_action.setStatusTip('Show live font preview')
+            font_preview_action.triggered.connect(self.parent.show_font_preview)
+            edit_menu.addAction(font_preview_action)
+        
+        # Color Selection
+        colors_action = QAction('🎨 &Colors...', self.parent)
+        colors_action.setShortcut(QKeySequence('Ctrl+Shift+O'))  # Changed from Ctrl+Shift+C to avoid conflict
+        colors_action.setStatusTip('Select overlay colors')
+        colors_action.triggered.connect(self.parent.select_colors)
+        edit_menu.addAction(colors_action)
+        
+        edit_menu.addSeparator()
+        
+        # ✨ Layout Editor
+        if hasattr(self.parent, 'open_layout_editor'):
+            layout_action = QAction('🎨 &Layout Editor...', self.parent)
+            layout_action.setShortcut(QKeySequence('Ctrl+L'))
+            layout_action.setStatusTip('Design custom overlay layouts')
+            layout_action.triggered.connect(self.parent.open_layout_editor)
+            edit_menu.addAction(layout_action)
+    
     def create_view_menu(self):
         """Create View menu"""
-        view_menu = self.menubar.addMenu('👁️ View')
-        
-        # Preview Resolution Submenu
-        self.create_preview_resolution_menu(view_menu)
-        
-        # Preview Quality Submenu
-        self.create_preview_quality_menu(view_menu)
-        
-        view_menu.addSeparator()
-        
-        # UI Elements
-        self.parent.log_action = QAction('📜 Log anzeigen', self.parent)
-        self.parent.log_action.setCheckable(True)
-        self.parent.log_action.setChecked(True)
-        self.parent.log_action.triggered.connect(self.parent.toggle_log_visibility)
-        view_menu.addAction(self.parent.log_action)
-        
-        # Full Screen (TODO: Implement)
-        fullscreen_action = QAction('🖥️ Vollbild', self.parent)
-        fullscreen_action.setShortcut('F11')
-        fullscreen_action.triggered.connect(self.toggle_fullscreen)
-        view_menu.addAction(fullscreen_action)
-        
-        view_menu.addSeparator()
+        view_menu = self.menubar.addMenu('👁️ &View')
         
         # Theme Selection
-        theme_menu = view_menu.addMenu('🎨 Design')
+        theme_menu = view_menu.addMenu('🎨 &Theme')
         
-        dark_theme_action = QAction('🌙 Dark Theme', self.parent)
-        dark_theme_action.setCheckable(True)
-        dark_theme_action.setChecked(True)
-        dark_theme_action.triggered.connect(lambda: self.parent.apply_theme("dark"))
-        theme_menu.addAction(dark_theme_action)
+        # Dark Theme
+        dark_action = QAction('🌙 &Dark Theme', self.parent)
+        dark_action.setCheckable(True)
+        dark_action.setChecked(self.parent.current_theme == 'dark')
+        dark_action.triggered.connect(lambda: self.parent.apply_theme('dark'))
+        theme_menu.addAction(dark_action)
         
-        light_theme_action = QAction('☀️ Light Theme', self.parent)
-        light_theme_action.setCheckable(True)
-        light_theme_action.triggered.connect(lambda: self.parent.apply_theme("light"))
-        theme_menu.addAction(light_theme_action)
-    
-    def create_preview_resolution_menu(self, parent_menu):
-        """Create Preview Internal Resolution submenu"""
-        internal_res_menu = parent_menu.addMenu('🔍 Preview Internal Resolution')
+        # Light Theme
+        light_action = QAction('☀️ &Light Theme', self.parent)
+        light_action.setCheckable(True)
+        light_action.setChecked(self.parent.current_theme == 'light')
+        light_action.triggered.connect(lambda: self.parent.apply_theme('light'))
+        theme_menu.addAction(light_action)
+        
+        view_menu.addSeparator()
+        
+        # Preview Settings
+        preview_menu = view_menu.addMenu('📺 &Preview')
+        
+        # Internal Resolution
+        resolution_menu = preview_menu.addMenu('📏 Internal &Resolution')
         
         resolutions = [
             ('720p (1280x720)', 1280, 720),
@@ -114,397 +147,229 @@ class MenuManager:
             ('4K (3840x2160)', 3840, 2160)
         ]
         
-        self.parent.resolution_actions = []
         for name, width, height in resolutions:
             action = QAction(name, self.parent)
             action.setCheckable(True)
+            action.setChecked(self.parent.internal_resolution == (width, height))
             action.triggered.connect(lambda checked, w=width, h=height: self.parent.set_internal_resolution(w, h))
-            if width == 1920 and height == 1080:  # 1080p default
-                action.setChecked(True)
-            internal_res_menu.addAction(action)
-            self.parent.resolution_actions.append(action)
-    
-    def create_preview_quality_menu(self, parent_menu):
-        """Create Preview Quality submenu"""
-        quality_menu = parent_menu.addMenu('⚙️ Preview Quality')
+            resolution_menu.addAction(action)
+            self.resolution_actions.append(action)
         
-        quality_options = [
-            ('⚡ Fastest (Nearest)', cv2.INTER_NEAREST),
-            ('🏃 Fast (Linear)', cv2.INTER_LINEAR),
-            ('👍 Good (Cubic)', cv2.INTER_CUBIC),
-            ('✨ Best (Lanczos)', cv2.INTER_LANCZOS4)
+        # Preview Quality
+        quality_menu = preview_menu.addMenu('🎯 Preview &Quality')
+        
+        qualities = [
+            ('Fastest (Nearest)', cv2.INTER_NEAREST),
+            ('Fast (Linear)', cv2.INTER_LINEAR),
+            ('Good (Cubic)', cv2.INTER_CUBIC),
+            ('Best (Lanczos)', cv2.INTER_LANCZOS4)
         ]
         
-        self.parent.quality_actions = []
-        for name, interpolation in quality_options:
+        for name, interpolation in qualities:
             action = QAction(name, self.parent)
             action.setCheckable(True)
+            action.setChecked(self.parent.preview_quality == interpolation)
             action.triggered.connect(lambda checked, interp=interpolation: self.parent.set_preview_quality(interp))
-            if interpolation == cv2.INTER_LANCZOS4:  # Lanczos default
-                action.setChecked(True)
             quality_menu.addAction(action)
-            self.parent.quality_actions.append(action)
+            self.quality_actions.append(action)
+        
+        view_menu.addSeparator()
+        
+        # Log Visibility
+        self.log_action = QAction('📝 Show &Log', self.parent)
+        self.log_action.setCheckable(True)
+        self.log_action.setChecked(True)
+        self.log_action.triggered.connect(self.parent.toggle_log_visibility)
+        view_menu.addAction(self.log_action)
     
-    def create_edit_menu(self):
-        """Create Edit menu"""
-        edit_menu = self.menubar.addMenu('✏️ Bearbeiten')
+    def create_tools_menu(self):
+        """Create Tools menu"""
+        tools_menu = self.menubar.addMenu('🔧 &Tools')
         
-        # Hardware Settings
-        self.parent.cuda_action = QAction('🚀 Use CUDA Acceleration', self.parent)
-        self.parent.cuda_action.setCheckable(True)
-        self.parent.cuda_action.setChecked(self.parent.cuda_available)
-        self.parent.cuda_action.setEnabled(self.parent.cuda_available)
-        self.parent.cuda_action.triggered.connect(self.parent.toggle_cuda)
-        edit_menu.addAction(self.parent.cuda_action)
+        # ✅ CUDA Toggle direkt im Tools Menü (kein Analysis-Untermenü mehr)
+        if self.parent.cuda_available:
+            self.cuda_action = QAction('🚀 Use &CUDA', self.parent)
+            self.cuda_action.setCheckable(True)
+            self.cuda_action.setChecked(True)
+            self.cuda_action.triggered.connect(self.parent.toggle_cuda)
+            tools_menu.addAction(self.cuda_action)
+            
+            tools_menu.addSeparator()
         
-        # Display Settings
-        self.parent.frametime_action = QAction('📊 Show Frame Time Graph', self.parent)
-        self.parent.frametime_action.setCheckable(True)
-        self.parent.frametime_action.setChecked(True)
-        self.parent.frametime_action.triggered.connect(self.parent.toggle_frametime_graph)
-        edit_menu.addAction(self.parent.frametime_action)
+        # Batch Processing
+        if hasattr(self.parent, 'open_batch_processor'):
+            batch_action = QAction('📦 &Batch Processor...', self.parent)
+            batch_action.setShortcut(QKeySequence('Ctrl+B'))
+            batch_action.triggered.connect(self.parent.open_batch_processor)
+            tools_menu.addAction(batch_action)
         
-        edit_menu.addSeparator()
+        # Video Comparison
+        comparison_action = QAction('📊 Video &Comparison...', self.parent)
+        comparison_action.setShortcut(QKeySequence('Ctrl+Shift+V'))
+        comparison_action.setStatusTip('Create side-by-side video comparison with adaptive resolution')
+        comparison_action.triggered.connect(self.open_comparison_creator)
+        tools_menu.addAction(comparison_action)
         
-        # FONT PREVIEW
-        font_preview_action = QAction('🎨 Live Font Preview', self.parent)
-        font_preview_action.triggered.connect(self.parent.show_font_preview)
-        edit_menu.addAction(font_preview_action)
+        tools_menu.addSeparator()
         
-        # FRAME TIME GRAPH POSITION
-        ftg_position_menu = edit_menu.addMenu('📍 FTG Position')
-        
-        positions = [
-            ("🔽 Unten Links (Über Frame Rate Graph)", "bottom_left"),
-            ("🔽 Unten Rechts (Standard Position)", "bottom_right"),
-            ("🔼 Oben Rechts", "top_right")
-        ]
-        
-        self.parent.ftg_position_actions = []
-        current_position = getattr(self.parent, 'ftg_position', 'bottom_right')
-        
-        for text, value in positions:
-            action = QAction(text, self.parent)
-            action.setCheckable(True)
-            action.setChecked(value == current_position)
-            action.triggered.connect(lambda checked, pos=value: self.set_ftg_position(pos))
-            ftg_position_menu.addAction(action)
-            self.parent.ftg_position_actions.append((action, value))
-        
-        edit_menu.addSeparator()
+        # System Information
+        sysinfo_action = QAction('💻 System &Information...', self.parent)
+        sysinfo_action.triggered.connect(self.show_system_info)
+        tools_menu.addAction(sysinfo_action)
     
     def create_help_menu(self):
         """Create Help menu"""
-        help_menu = self.menubar.addMenu('❓ Hilfe')
+        help_menu = self.menubar.addMenu('❓ &Help')
         
         # Keyboard Shortcuts
-        shortcuts_action = QAction('⌨️ Keyboard Shortcuts', self.parent)
+        shortcuts_action = QAction('⌨️ &Keyboard Shortcuts...', self.parent)
         shortcuts_action.triggered.connect(self.show_shortcuts)
         help_menu.addAction(shortcuts_action)
-        
-        # Documentation
-        docs_action = QAction('📖 Documentation', self.parent)
-        docs_action.triggered.connect(self.show_documentation)
-        help_menu.addAction(docs_action)
-        
-        help_menu.addSeparator()
-        
-        # System Info
-        sysinfo_action = QAction('💻 System Info', self.parent)
-        sysinfo_action.triggered.connect(self.show_system_info)
-        help_menu.addAction(sysinfo_action)
-        
-        # Check for Updates
-        update_action = QAction('🔄 Check for Updates', self.parent)
-        update_action.triggered.connect(self.check_updates)
-        help_menu.addAction(update_action)
         
         help_menu.addSeparator()
         
         # About
-        about_action = QAction('ℹ️ About FPS Analyzer', self.parent)
+        about_action = QAction('ℹ️ &About FPS Analyzer...', self.parent)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        
+        # About Qt
+        about_qt_action = QAction('🎨 About &Qt...', self.parent)
+        about_qt_action.triggered.connect(lambda: QMessageBox.aboutQt(self.parent))
+        help_menu.addAction(about_qt_action)
     
-    # ✨ NEW: Batch Processor Menu Action
-    def open_batch_processor(self):
-        """Open the batch processor dialog"""
+    # **ENHANCED: Comparison Creator Method**
+    def open_comparison_creator(self):
+        """Open the enhanced video comparison creator dialog"""
         try:
-            from batch_processor import BatchProcessorDialog
-            dialog = BatchProcessorDialog(self.parent)
+            from comparison_creator import ComparisonCreatorDialog
+            
+            dialog = ComparisonCreatorDialog(self.parent)
             dialog.exec()
+            
+            self.parent.log("📊 Enhanced Video Comparison Creator opened with adaptive resolution support")
+            
         except ImportError as e:
-            QMessageBox.warning(self.parent, 'Import Error', 
-                              f'Could not load batch processor:\n{str(e)}')
-    
-    # Menu Action Implementations
-    def export_settings(self):
-        """Export current settings to file"""
-        try:
-            import json
-            from PyQt6.QtWidgets import QFileDialog
-            
-            settings = {
-                'fps_font': {
-                    'font_name': self.parent.fps_font_settings.font_name,
-                    'size': self.parent.fps_font_settings.size,
-                    'thickness': self.parent.fps_font_settings.thickness,
-                    'bold': self.parent.fps_font_settings.bold,
-                    'border_thickness': self.parent.fps_font_settings.border_thickness
-                },
-                'framerate_font': {
-                    'font_name': self.parent.framerate_font_settings.font_name,
-                    'size': self.parent.framerate_font_settings.size,
-                    'thickness': self.parent.framerate_font_settings.thickness,
-                    'bold': self.parent.framerate_font_settings.bold,
-                    'border_thickness': self.parent.framerate_font_settings.border_thickness
-                },
-                'frametime_font': {
-                    'font_name': self.parent.frametime_font_settings.font_name,
-                    'size': self.parent.frametime_font_settings.size,
-                    'thickness': self.parent.frametime_font_settings.thickness,
-                    'bold': self.parent.frametime_font_settings.bold,
-                    'border_thickness': self.parent.frametime_font_settings.border_thickness
-                },
-                'colors': {
-                    'framerate_color': self.parent.framerate_color,
-                    'frametime_color': self.parent.frametime_color
-                },
-                'preview': {
-                    'internal_resolution': self.parent.internal_resolution,
-                    'preview_quality': self.parent.preview_quality
-                }
-            }
-            
-            file_path, _ = QFileDialog.getSaveFileName(
-                self.parent, 'Export Settings', 'fps_analyzer_settings.json',
-                'JSON Files (*.json);;All Files (*)')
-            
-            if file_path:
-                with open(file_path, 'w') as f:
-                    json.dump(settings, f, indent=2)
-                self.parent.log(f"✓ Settings exported to {file_path}")
-                QMessageBox.information(self.parent, 'Export Successful', 
-                                      f'Settings exported successfully to:\n{file_path}')
+            self.parent.log(f"❌ Could not open Comparison Creator: {e}")
+            QMessageBox.warning(
+                self.parent, 'Comparison Creator Error',
+                f'Could not open Video Comparison Creator:\n{str(e)}\n\n'
+                'Please check that comparison_creator.py is available.'
+            )
         except Exception as e:
-            self.parent.log(f"✗ Export failed: {e}")
-            QMessageBox.warning(self.parent, 'Export Failed', f'Could not export settings:\n{str(e)}')
+            self.parent.log(f"❌ Comparison Creator error: {e}")
+            QMessageBox.warning(
+                self.parent, 'Comparison Creator Error',
+                f'Error opening Comparison Creator:\n{str(e)}'
+            )
     
-    def import_settings(self):
-        """Import settings from file"""
-        try:
-            import json
-            from PyQt6.QtWidgets import QFileDialog
-            from font_manager import OpenCVFontSettings
-            
-            file_path, _ = QFileDialog.getOpenFileName(
-                self.parent, 'Import Settings', '',
-                'JSON Files (*.json);;All Files (*)')
-            
-            if file_path:
-                with open(file_path, 'r') as f:
-                    settings = json.load(f)
-                
-                # Apply font settings
-                if 'fps_font' in settings:
-                    fps = settings['fps_font']
-                    self.parent.fps_font_settings = OpenCVFontSettings(
-                        fps['font_name'], fps['size'], fps['thickness'], 
-                        fps['bold'], fps['border_thickness']
-                    )
-                
-                if 'framerate_font' in settings:
-                    fr = settings['framerate_font']
-                    self.parent.framerate_font_settings = OpenCVFontSettings(
-                        fr['font_name'], fr['size'], fr['thickness'], 
-                        fr['bold'], fr['border_thickness']
-                    )
-                
-                if 'frametime_font' in settings:
-                    ft = settings['frametime_font']
-                    self.parent.frametime_font_settings = OpenCVFontSettings(
-                        ft['font_name'], ft['size'], ft['thickness'], 
-                        ft['bold'], ft['border_thickness']
-                    )
-                
-                # Apply color settings
-                if 'colors' in settings:
-                    colors = settings['colors']
-                    self.parent.framerate_color = colors.get('framerate_color', '#00FF00')
-                    self.parent.frametime_color = colors.get('frametime_color', '#00FF00')
-                
-                # Apply preview settings
-                if 'preview' in settings:
-                    preview = settings['preview']
-                    if 'internal_resolution' in preview:
-                        res = preview['internal_resolution']
-                        self.parent.set_internal_resolution(res[0], res[1])
-                
-                self.parent.log(f"✓ Settings imported from {file_path}")
-                QMessageBox.information(self.parent, 'Import Successful', 
-                                      f'Settings imported successfully from:\n{file_path}')
-        except Exception as e:
-            self.parent.log(f"✗ Import failed: {e}")
-            QMessageBox.warning(self.parent, 'Import Failed', f'Could not import settings:\n{str(e)}')
-    
-    def toggle_fullscreen(self):
-        """Toggle fullscreen mode"""
-        if self.parent.isFullScreen():
-            self.parent.showNormal()
-        else:
-            self.parent.showFullScreen()
-    
-    def show_shortcuts(self):
-        """Show keyboard shortcuts"""
-        shortcuts_text = """Keyboard Shortcuts:
-
-📁 File Operations:
-Ctrl+O - Load Video
-Ctrl+B - Open Batch Processor
-Ctrl+Q - Quit Application
-
-🎬 Playback:
-Space - Play/Pause (when video loaded)
-F11 - Toggle Fullscreen
-
-⚙️ Analysis:
-F5 - Start/Stop FPS Analysis
-Esc - Cancel Analysis
-
-🎨 Preview:
-F2 - Live Font Preview
-
-💡 Interface:
-F1 - Show this help
-Ctrl+, - Open Settings"""
-        
-        QMessageBox.information(self.parent, 'Keyboard Shortcuts', shortcuts_text)
-    
-    def show_documentation(self):
-        """Show documentation"""
-        doc_text = """📖 FPS Analyzer Documentation
-
-🎯 Quick Start:
-1. Load a video file (File → Load Video)
-2. Configure output settings (resolution, bitrate)
-3. Use Live Font Preview to test font settings
-4. Adjust font and color settings if desired
-5. Click 'Start FPS Analysis' to begin
-
-📦 Batch Processing:
-1. Open File → Batch Processor
-2. Add multiple videos or select folder
-3. Configure batch settings
-4. Click 'Start Batch' for automatic processing
-
-📊 Features:
-• Real-time FPS detection and analysis
-• Professional overlay generation
-• Live font preview system
-• Customizable fonts and colors
-• Frame time analysis
-• Hardware acceleration support
-• Aspect ratio preservation
-• Batch processing support
-• Settings persistence
-
-⚙️ Advanced Options:
-• Detection sensitivity adjustment
-• Multiple preview quality settings
-• Custom frame time scales
-• Export/Import settings
-
-For more detailed documentation, visit our website or check the README file."""
-        
-        QMessageBox.information(self.parent, 'Documentation', doc_text)
+    def open_settings(self):
+        """Open application settings dialog"""
+        QMessageBox.information(
+            self.parent, 'Settings',
+            'Settings dialog is not yet implemented.\n\n'
+            'Use the toolbar settings and menu options for now.'
+        )
     
     def show_system_info(self):
-        """Show system information"""
+        """Show system information dialog"""
         import torch
         import cv2
-        import platform
+        import sys
+        from PyQt6.QtCore import QT_VERSION_STR
+        from PyQt6 import PYQT_VERSION_STR
         
-        sys_info = f"""💻 System Information:
+        info = f"""🖥️ System Information
 
-🖥️ System: {platform.system()} {platform.release()}
-🐍 Python: {platform.python_version()}
+📊 Application: FPS Analyzer v2.4 (Enhanced Comparison)
+🐍 Python: {sys.version.split()[0]}
+🎨 Qt: {QT_VERSION_STR}
+🪟 PyQt6: {PYQT_VERSION_STR}
 📹 OpenCV: {cv2.__version__}
 🔥 PyTorch: {torch.__version__}
-🚀 CUDA Available: {'Yes' if torch.cuda.is_available() else 'No'}"""
+
+🚀 CUDA Available: {'✓ YES' if torch.cuda.is_available() else '✗ NO'}
+
+📊 NEW FEATURES:
+✓ Video Comparison Creator with Adaptive Resolution
+✓ Support for 720p, 1080p, 1440p, 4K Comparison
+✓ Center-Crop with Intelligent Sizing
+✓ Simplified Comparison UI
+✓ Adaptive Layout System"""
         
         if torch.cuda.is_available():
-            try:
-                gpu_name = torch.cuda.get_device_name(0)
-                sys_info += f"\n🎮 GPU: {gpu_name}"
-            except:
-                sys_info += f"\n🎮 GPU: CUDA Device 0"
+            info += f"\n💾 GPU: {torch.cuda.get_device_name(0)}"
+            info += f"\n🎯 CUDA Devices: {torch.cuda.device_count()}"
         
-        sys_info += f"""
+        QMessageBox.information(self.parent, 'System Information', info)
+    
+    def show_shortcuts(self):
+        """Show keyboard shortcuts dialog"""
+        shortcuts = """⌨️ Keyboard Shortcuts
 
-📊 Current Settings:
-• Preview Resolution: {self.parent.internal_resolution[0]}x{self.parent.internal_resolution[1]}
-• Preview Quality: {self.get_quality_name()}"""
+📁 File Operations:
+• Ctrl+O - Open Video
+• Ctrl+Shift+C - Create Comparison (Enhanced)
+• Ctrl+B - Batch Processor
+• Ctrl+Q - Exit
+
+✏️ Editing:
+• Ctrl+F - Font Selection
+• Ctrl+Shift+F - Font Preview
+• Ctrl+Shift+O - Color Selection
+• Ctrl+L - Layout Editor
+
+👁️ View:
+• F11 - Fullscreen (if supported)
+
+🎬 Playback:
+• Space - Play/Pause (when video loaded)
+• Left/Right - Frame Step (when paused)
+
+🎯 Analysis:
+• Enter - Start/Stop Analysis
+• Esc - Cancel Analysis
+
+📊 NEW Comparison:
+• Ctrl+Shift+V - Video Comparison (Tools menu)"""
         
-        QMessageBox.information(self.parent, 'System Information', sys_info)
-    
-    def check_updates(self):
-        """Check for updates"""
-        QMessageBox.information(self.parent, 'Check for Updates', 
-                               '🔄 Update checking is not implemented yet.\n\n'
-                               'Please check the project repository for the latest version.')
-    
-    def set_ftg_position(self, position):
-        """Set Frame Time Graph position and update menu checkmarks"""
-        self.parent.ftg_position = position
-        self.parent.log(f"✓ Frame Time Graph position set to: {position}")
-        
-        # Update checkmarks
-        for action, pos in self.parent.ftg_position_actions:
-            action.setChecked(pos == position)
-        
-        # Save settings
-        self.parent.save_current_settings()
-    
-    def get_quality_name(self):
-        """Get current quality setting name"""
-        quality_map = {
-            cv2.INTER_NEAREST: 'Fastest',
-            cv2.INTER_LINEAR: 'Fast',
-            cv2.INTER_CUBIC: 'Good',
-            cv2.INTER_LANCZOS4: 'Best'
-        }
-        return quality_map.get(self.parent.preview_quality, 'Unknown')
+        QMessageBox.information(self.parent, 'Keyboard Shortcuts', shortcuts)
     
     def show_about(self):
-        """🔧 FIXED: Show about dialog with corrected branding"""
-        about_text = """🎯 FPS Analyzer v2.3
+        """Show about dialog"""
+        about_text = """🎯 FPS Analyzer - Professional Video Analysis v2.4
 
-A professional FPS analysis tool for video content.
+🚀 Features:
+• Advanced FPS Detection & Analysis
+• Professional Video Overlays
+• **ENHANCED: Adaptive Video Comparison with Multi-Resolution Support**
+  - 720p Comparison (640x720)
+  - 1080p Comparison (960x1080) [Standard]
+  - 1440p Comparison (1280x1440)
+  - 4K Comparison (1920x2160)
+• Custom Layout Editor with Drag & Drop
+• Smart Snapping System
+• OpenCV Font System with Live Preview
+• Batch Processing
+• PNG Alpha Sequence Export
+• CUDA Acceleration Support
+• Aspect Ratio Preservation
+• Settings Persistence
 
-✨ Key Features:
-• Live font preview system with background selector
-• Batch processing for multiple videos
-• Enhanced UI with custom widgets
-• Settings persistence (auto-save/load)
-
-🎬 Inspired by Digital Foundry, made available to everyone
-
-Created with ❤️ using:
+💻 Built with:
 • Python & PyQt6
-• OpenCV for video processing
-• PyTorch for GPU acceleration
+• OpenCV for Video Processing
+• PyTorch for CUDA Support
 
-Features:
-✨ Real-time FPS detection
-📊 Frame time analysis
-🎨 Live font preview system
-📦 Batch processing support
-🖼️ Aspect ratio preservation
-🚀 GPU acceleration support
-💾 Settings import/export
-🎯 Professional overlay generation
+🎨 Created for Professional Video Analysis
 
-© 2024 FPS Analyzer Team
-Licensed under MIT License"""
+© 2024 FPS Analysis Tools
+Licensed under MIT License
+
+🆕 What's New in v2.4:
+• Adaptive Resolution Support for Video Comparison
+• Center-Crop with Intelligent Resizing
+• Resolution-Aware Layout System
+• Enhanced PNG Export for Multiple Resolutions"""
         
         QMessageBox.about(self.parent, 'About FPS Analyzer', about_text)

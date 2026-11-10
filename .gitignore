@@ -1,0 +1,50 @@
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Mitgelieferte Binaries ───────────────────────────────────────────────
+# ffmpeg.exe ist ~147 MB und sprengt GitHubs 100-MB-Grenze pro Datei.
+# Es gehört ohnehin nicht ins Repo: Jede Plattform bringt ihr eigenes mit,
+# und eine eingecheckte Windows-Binary wäre für Linux/macOS nutzlos.
+# Siehe README für die Installation.
+ffmpeg.exe
+ffprobe.exe
+ffmpeg
+ffprobe
+*.exe
+*.dll
+
+# ── Analyse-Ergebnisse und Zwischenstände ────────────────────────────────
+*.fpsdata
+*_fps_analysis.mp4
+*_fps_analysis.mkv
+output/
+exports/
+
+# ── Lokale Einstellungen ─────────────────────────────────────────────────
+# Die eigentlichen Nutzereinstellungen liegen unter ~/.fps_analyzer/,
+# also außerhalb des Projekts. Diese Einträge fangen nur lokale Kopien ab.
+settings.json
+*.local.json
+
+# ── Große Medien ─────────────────────────────────────────────────────────
+*.mp4
+*.mkv
+*.mov
+*.avi
+
+# ── Werkzeuge und Editoren ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

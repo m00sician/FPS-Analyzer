@@ -1,0 +1,73 @@
+{
+  "layout": {
+    "fps_number": {
+      "position": [
+        49,
+        44
+      ],
+      "size": [
+        99,
+        41
+      ],
+      "visible": true
+    },
+    "frame_time_graph": {
+      "position": [
+        50,
+        531
+      ],
+      "size": [
+        400,
+        150
+      ],
+      "visible": true
+    },
+    "frametime_statistics": {
+      "position": [
+        50,
+        691
+      ],
+      "size": [
+        336,
+        40
+      ],
+      "visible": true
+    },
+    "frame_rate_graph": {
+      "position": [
+        50,
+        775
+      ],
+      "size": [
+        910,
+        200
+      ],
+      "visible": true
+    },
+    "fps_statistics": {
+      "position": [
+        50,
+        985
+      ],
+      "size": [
+        520,
+        46
+      ],
+      "visible": true
+    }
+  },
+  "style": {
+    "text_style": "Hard Outline",
+    "outline_width": 3,
+    "graph_border": "White Outline",
+    "bg_opacity": 0.5,
+    "fps_color": "#55ff00",
+    "ft_color": "#55ff00",
+    "line_thickness": 2,
+    "smooth_window": 5,
+    "fps_update_interval": 15,
+    "frosted_glass": true,
+    "frost_blur": 25,
+    "frost_darken": 0.35
+  }
+}

@@ -1,23 +1,23 @@
 """
-Fade Detection — erkennt uniforme Übergangs-Frames (Fade to white/black/color).
+Fade Detection - finds uniform transition frames (fade to white/black/colour).
 
 Problem:
-  Ein Fade-Übergang (Kamera zoomt raus, Bild wird kurz einfarbig) hat quasi
-  keine räumliche Varianz. Der Duplikat-Detektor sieht identische Frames und
-  meldet 0 FPS / 500ms+ Frametime-Spikes — was Min/Max/Avg und den Graphen
-  verfälscht.
+A fade transition (the camera pulls back, the image briefly turns a single
+colour) has almost no spatial variance. The duplicate detector sees identical
+frames and reports 0 FPS and 500ms+ frame time spikes, which distorts
+min/max/avg and the graph.
 
-Lösung:
-  Frames mit sehr niedriger räumlicher Varianz (Standardabweichung der
-  Graustufen) werden als Fade markiert. Um jeden Fade-Block wird ein
-  Puffer (Default 2s) gelegt, dessen Frames aus den Statistiken
-  ausgeschlossen werden. Im Graphen bleibt die Lücke sichtbar (Unterbrechung).
+Solution:
+Frames with very low spatial variance (standard deviation of the greyscale
+image) are marked as fades. A buffer (2s by default) is placed around every
+fade block, and its frames are excluded from the statistics. The gap stays
+visible in the graph as a break in the line.
 
-  Der Puffer NACH dem Fade ist zum Analyse-Zeitpunkt noch nicht bekannt,
-  daher arbeitet der Detektor in zwei Stufen:
-    1. Live pro Frame: is_fade(gray) markiert uniforme Frames sofort.
-    2. Nachbearbeitung: finalize_excluded() expandiert alle Fade-Blöcke
-       um den Puffer und liefert das finale Set ausgeschlossener Indizes.
+The buffer AFTER a fade is not yet known while the analysis runs, so the
+detector works in two stages:
+  1. Live, per frame: is_fade(gray) marks uniform frames immediately.
+  2. Post-processing: finalize_excluded() expands every fade block by the
+     buffer and returns the final set of excluded indices.
 """
 
 import numpy as np
@@ -29,29 +29,29 @@ class FadeDetector:
                  buffer_seconds: float = 2.0,
                  min_fade_frames: int = 2):
         """
-        std_threshold:  Graustufen-Standardabweichung unter der ein Frame als
-                        uniform gilt (0..255-Skala). ~8 fängt Fades sicher,
-                        ohne dunkle-aber-strukturierte Szenen zu treffen.
-        buffer_seconds: Puffer vor und nach jedem Fade-Block.
-        min_fade_frames: Mindestlänge eines Fade-Blocks (gegen Einzelframe-
-                        Fehlalarme durch z.B. Vollbild-Effekte).
+        std_threshold:  greyscale standard deviation below which a frame counts
+                        as uniform (0..255 scale). ~8 catches fades reliably
+                        without hitting dark-but-detailed scenes.
+        buffer_seconds: buffer before and after every fade block.
+        min_fade_frames: minimum length of a fade block (guards against single
+                        frame false alarms from e.g. full-screen effects).
         """
         self.source_fps    = max(1.0, source_fps)
         self.std_threshold = float(std_threshold)
         self.buffer_frames = int(round(buffer_seconds * self.source_fps))
         self.min_fade_frames = int(min_fade_frames)
 
-        self._is_fade_frame: list[bool] = []   # pro Frame-Index
+        self._is_fade_frame: list[bool] = []   # one entry per frame index
 
     def process(self, gray: np.ndarray) -> bool:
         """
-        Live-Check pro Frame. gray = Graustufenbild (0..255 oder 0..1).
-        Returns True wenn der Frame uniform (Fade-Kandidat) ist.
+        Per-frame live check. gray = greyscale image (0..255 or 0..1).
+        Returns True when the frame is uniform (a fade candidate).
         """
         g = gray
         if g.dtype != np.float32 and g.dtype != np.float64:
             g = g.astype(np.float32)
-        # Normalisierung auf 0..255-Skala für konsistenten Threshold
+        # Normalise to the 0..255 scale so the threshold stays consistent
         if float(g.max()) <= 1.5:
             g = g * 255.0
 
@@ -62,9 +62,9 @@ class FadeDetector:
 
     def finalize_excluded(self) -> set:
         """
-        Nach der Analyse aufrufen. Expandiert jeden zusammenhängenden
-        Fade-Block (>= min_fade_frames) um buffer_frames in beide Richtungen
-        und liefert das Set aller ausgeschlossenen Frame-Indizes.
+        Call this after the analysis. Expands every contiguous fade block
+        (>= min_fade_frames) by buffer_frames in both directions and returns
+        the set of all excluded frame indices.
         """
         flags = self._is_fade_frame
         n = len(flags)
@@ -75,7 +75,7 @@ class FadeDetector:
             if not flags[i]:
                 i += 1
                 continue
-            # Fade-Block finden [start, end)
+            # Find the fade block [start, end)
             start = i
             while i < n and flags[i]:
                 i += 1
@@ -89,8 +89,8 @@ class FadeDetector:
 
     def fade_blocks(self) -> list:
         """
-        Liefert die reinen Fade-Blöcke als [(start, end), ...] (ohne Puffer)
-        — nützlich für Logging/Diagnose.
+        Returns the raw fade blocks as [(start, end), ...] (without the
+        buffer) - useful for logging and diagnostics.
         """
         flags = self._is_fade_frame
         n = len(flags)

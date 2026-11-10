@@ -1,5 +1,5 @@
 """
-Menu Manager für FPS Analyzer - ENHANCED with Adaptive Video Comparison Feature
+Menu Manager for FPS Analyzer - ENHANCED with Adaptive Video Comparison Feature
 Handles all menu creation and actions including the enhanced comparison creator
 """
 from PyQt6.QtWidgets import QMessageBox
@@ -139,7 +139,7 @@ class MenuManager:
         """Create Tools menu"""
         tools_menu = self.menubar.addMenu('🔧 &Tools')
         
-        # ✅ CUDA Toggle direkt im Tools Menü (kein Analysis-Untermenü mehr)
+        # CUDA toggle lives directly in the Tools menu (no Analysis submenu any more)
         if self.parent.cuda_available:
             self.cuda_action = QAction('🚀 Use &CUDA', self.parent)
             self.cuda_action.setCheckable(True)
@@ -156,10 +156,10 @@ class MenuManager:
             batch_action.triggered.connect(self.parent.open_batch_processor)
             tools_menu.addAction(batch_action)
 
-        # Auflösungs-Analyse (experimentell)
+        # Resolution analysis (experimental)
         if hasattr(self.parent, 'run_resolution_analysis'):
-            res_action = QAction('📐 &Auflösungs-Analyse (experimentell)...', self.parent)
-            res_action.setStatusTip('Interne Renderauflösung eines Videos schätzen (FFT-basiert)')
+            res_action = QAction('📐 &Resolution Analysis (experimental)...', self.parent)
+            res_action.setStatusTip('Estimate a video\'s internal render resolution (FFT based)')
             res_action.triggered.connect(self.parent.run_resolution_analysis)
             tools_menu.addAction(res_action)
         
@@ -182,7 +182,7 @@ class MenuManager:
             stats_panel_action = QAction('🧩 &Stats-Panel...', self.parent)
             stats_panel_action.setShortcut(QKeySequence('Ctrl+P'))
             stats_panel_action.setStatusTip(
-                'Alternativer Anzeigemodus: Info-Box mit Titel, FPS, Graphen und Textfeldern')
+                'Alternative display mode: info box with title, FPS, graphs and text fields')
             stats_panel_action.triggered.connect(self.parent.open_stats_panel_dialog)
             tools_menu.addAction(stats_panel_action)
 
@@ -195,9 +195,9 @@ class MenuManager:
 
         tools_menu.addSeparator()
 
-        # Encode aus gespeicherten Analyse-Daten
-        encode_data_action = QAction('📂 Aus Analyse-&Daten encoden...', self.parent)
-        encode_data_action.setStatusTip('Gespeicherte .fpsdata laden und encoden — ohne Neuanalyse')
+        # Encode from saved analysis data
+        encode_data_action = QAction('📂 Encode from Analysis &Data...', self.parent)
+        encode_data_action.setStatusTip('Load saved .fpsdata and encode it - without re-analysing')
         encode_data_action.triggered.connect(self.parent.encode_from_data)
         tools_menu.addAction(encode_data_action)
 
@@ -304,7 +304,7 @@ class MenuManager:
 🎨 Qt: {QT_VERSION_STR}
 🪟 PyQt6: {PYQT_VERSION_STR}
 📹 OpenCV: {cv2.__version__}
-🔥 PyTorch: {torch.__version__ if torch else 'nicht installiert'}
+🔥 PyTorch: {torch.__version__ if torch else 'not installed'}
 
 🚀 CUDA Available: {'✓ YES' if (torch and torch.cuda.is_available()) else '✗ NO'}
 

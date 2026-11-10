@@ -80,7 +80,7 @@ class SystemFontDiscovery:
                 os.path.expanduser("~/.local/share/fonts/")
             ]
         
-        # Scan directories - ALLE FONTS
+        # Scan directories - ALL FONTS
         for font_dir in font_dirs:
             if os.path.exists(font_dir):
                 for ext in ['*.ttf', '*.otf', '*.TTF', '*.OTF']:
@@ -135,7 +135,7 @@ class SystemFontDiscovery:
             if any(popular_name in font_name_lower for popular_name in self.popular_font_names):
                 popular.append(font)
         
-        # Bebas Neue an den Anfang setzen wenn vorhanden
+        # Move Bebas Neue to the front if present
         bebas_index = next((i for i, font in enumerate(popular) 
                            if 'bebas' in font['name'].lower()), None)
         if bebas_index is not None:

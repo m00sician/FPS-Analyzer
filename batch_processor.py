@@ -1,5 +1,5 @@
 """
-Batch Processor für FPS Analyzer
+Batch Processor for FPS Analyzer
 Handles multiple video analysis in sequence with queue management
 """
 import os
@@ -51,7 +51,7 @@ class BatchProcessorThread(QThread):
     item_progress = pyqtSignal(int, int, str)  # item index, progress, message
     item_completed = pyqtSignal(int, bool, str)  # item index, success, message
     batch_completed = pyqtSignal()
-    frame_preview = pyqtSignal(object)  # BGR-Frame für die Live-Vorschau
+    frame_preview = pyqtSignal(object)  # BGR frame for the live preview
 
     def __init__(self, batch_items, settings):
         super().__init__()
@@ -211,21 +211,21 @@ class BatchProcessorDialog(QDialog):
         settings_widget = QGroupBox("⚙️ Batch Settings")
         layout = QVBoxLayout(settings_widget)
 
-        # Hinweis: alle Encode-Einstellungen kommen aus dem Hauptfenster
+        # Note: every encode setting comes from the main window
         info = QLabel(
-            "ℹ️ Der Batch nutzt die Einstellungen aus dem Hauptfenster\n"
-            "(Auflösung, Bitrate, Grid-Werte, Layout, Detection, Style).\n"
-            "Zum Ändern: Hauptfenster + Layout Editor + Optionen anpassen."
+            "ℹ️ The batch uses the settings from the main window\n"
+            "(resolution, bitrate, grid values, layout, detection, style).\n"
+            "To change them: adjust the main window, Layout Editor and Options."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #aaa; padding: 8px; background: rgba(255,255,255,8); border-radius: 6px;")
         layout.addWidget(info)
 
-        # Live-Preview des aktuell verarbeiteten Frames
+        # Live preview of the frame currently being processed
         from PyQt6.QtCore import Qt as _Qt
-        preview_box = QGroupBox("🎬 Encode-Vorschau")
+        preview_box = QGroupBox("🎬 Encode preview")
         pv_layout = QVBoxLayout(preview_box)
-        self.preview_label = QLabel("Vorschau erscheint während der Verarbeitung…")
+        self.preview_label = QLabel("The preview appears while processing…")
         self.preview_label.setAlignment(_Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumHeight(160)
         self.preview_label.setStyleSheet(
@@ -399,9 +399,9 @@ class BatchProcessorDialog(QDialog):
             QMessageBox.warning(self, 'No Files', 'Please add files to the queue first.')
             return
 
-        # ALLE Einstellungen kommen aus dem Hauptfenster — der Batch hat keine
-        # eigenen Encode-Settings mehr. Grid-Werte, Auflösung, Bitrate, Layout,
-        # Overlay-Style, Detection, Codec: alles über get_current_settings().
+        # EVERY setting comes from the main window - the batch no longer has
+        # encode settings of its own. Grid values, resolution, bitrate, layout,
+        # overlay style, detection, codec: all via get_current_settings().
         try:
             settings = dict(self.parent_analyzer.get_current_settings())
         except Exception as e:
@@ -420,7 +420,7 @@ class BatchProcessorDialog(QDialog):
             'frametime_color': getattr(self.parent_analyzer, 'frametime_color', '#00FF00')
         })
 
-        # Auflösung aus dem Hauptfenster (für Layout-Umrechnung)
+        # Resolution from the main window (needed to scale the layout)
         resolution = settings.get('resolution')
         if not resolution and hasattr(self.parent_analyzer, 'resolution_combo'):
             resolution = self.parent_analyzer.resolution_combo.currentData()
@@ -428,7 +428,7 @@ class BatchProcessorDialog(QDialog):
             resolution = (1920, 1080)
         settings['resolution'] = resolution
 
-        # Layout config — Graph-Positionen für die Batch-Auflösung
+        # Layout config - graph positions for the batch resolution
         if hasattr(self.parent_analyzer, 'layout_manager'):
             settings['layout_config'] = self.parent_analyzer.layout_manager.convert_to_overlay_positions(
                 self.parent_analyzer.layout_manager.get_current_layout(),
@@ -436,7 +436,7 @@ class BatchProcessorDialog(QDialog):
                 resolution[1]
             )
 
-        # Graph templates — ohne diese werden die Graphen nicht gerendert.
+        # Graph templates - without them the graphs are not rendered.
         p = self.parent_analyzer
         if hasattr(p, 'fps_graph_combo'):
             settings['fps_graph_template'] = p.fps_graph_combo.currentData()
@@ -492,15 +492,15 @@ class BatchProcessorDialog(QDialog):
         self.update_file_list()
 
     def on_frame_preview(self, frame_bgr):
-        """Zeigt das aktuell verarbeitete Frame skaliert in der Vorschau."""
+        """Show the frame currently being processed, scaled, in the preview."""
         try:
             import cv2, numpy as np
             from PyQt6.QtGui import QImage, QPixmap
             from PyQt6.QtCore import Qt as _Qt
             if frame_bgr is None or not hasattr(frame_bgr, 'shape'):
                 return
-            # Kopie erzwingen (der numpy-Buffer aus dem Worker-Thread kann
-            # nach dem Signal ungültig werden → QImage bräuchte gültigen Speicher)
+            # Force a copy: the numpy buffer from the worker thread can become
+            # invalid after the signal, while QImage needs memory that stays valid
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             rgb = np.ascontiguousarray(rgb)
             h, w = rgb.shape[:2]
@@ -515,7 +515,7 @@ class BatchProcessorDialog(QDialog):
             self.preview_label.setPixmap(pix)
         except Exception as e:
             import traceback; traceback.print_exc()
-            print(f"Batch-Preview-Fehler: {e}")
+            print(f"Batch preview error: {e}")
 
     def on_batch_completed(self):
         """Handle batch completion"""
@@ -561,8 +561,8 @@ class BatchProcessorDialog(QDialog):
 
     def update_ui(self):
         """Update UI elements periodically"""
-        # Vorschau-Frame vom laufenden Worker holen (Timer läuft auf UI-Thread,
-        # daher sicher zum Anzeigen — anders als Signals aus Python-Threads).
+        # Pull the preview frame from the running worker. The timer runs on the
+        # UI thread, so this is safe to display - unlike signals from Python threads.
         try:
             th = getattr(self, 'processor_thread', None)
             wk = getattr(th, 'current_worker', None) if th else None

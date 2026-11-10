@@ -1,26 +1,26 @@
 """
-Stats-Panel — alternativer Anzeigemodus im Stil klassischer Benchmark-Overlays.
+Stats panel - an alternative display mode in the style of classic benchmark
+overlays.
 
-Eine abgerundete, halbtransparente Box mit abwechselnd hellen und dunklen
-Bändern. Aufbau von oben nach unten:
+A rounded, semi-transparent box with alternating light and dark bands. From
+top to bottom:
 
-    1  Titel (Spielname)
-    2  große FPS-Zahl + AVG / MIN / MAX
-    3  FPS-Graph mit Mittellinie
-    4  Konsole + Version (zwei feste Felder)
-    5  bis zu drei frei belegbare Zeilen (je 1 breites ODER 2 schmale Felder)
-    6  Frametime-Graph
+    1  title (game name)
+    2  large FPS number + AVG / MIN / MAX
+    3  FPS graph with a centre line
+    4  console + version (two fixed fields)
+    5  up to three freely assignable rows (1 wide OR 2 narrow fields each)
+    6  frame time graph
 
-Die Bänder wechseln zwischen BAND_DARK und BAND_LIGHT, beginnend dunkel.
+The bands alternate between BAND_DARK and BAND_LIGHT, starting dark.
 
-LEISTUNG
-Der weitaus größte Teil des Panels ist über den ganzen Clip identisch:
-Bänder, abgerundete Ecken, Titel, Konsole, Version, Zusatzfelder und die
-Beschriftungen. Nur FPS-Zahl, AVG/MIN/MAX und die beiden Graphen ändern sich.
-Deshalb wird der statische Teil EINMAL in einen RGBA-Layer gerendert und
-danach nur noch geblendet — dieselbe Strategie, die im Haupt-Overlay aus
-213 ms 27 ms gemacht hat. Pro Frame bleibt nur das Zeichnen der wenigen
-dynamischen Elemente übrig.
+PERFORMANCE
+By far the largest part of the panel is identical across the whole clip:
+bands, rounded corners, title, console, version, extra fields and the
+labels. Only the FPS number, AVG/MIN/MAX and the two graphs change. So the
+static part is rendered into an RGBA layer ONCE and only blended after
+that - the same strategy that took the main overlay from 213 ms to 27 ms.
+Per frame, only the few dynamic elements are left to draw.
 """
 
 import threading
@@ -40,7 +40,7 @@ except Exception:  # pragma: no cover
     _FontCache = None
 
 
-# ── Farben & Maße (alle Pixelwerte auf 1080p bezogen) ────────────────────────
+# ── Colours & measurements (all pixel values relative to 1080p) ─────────────
 
 BAND_DARK = (0x2b, 0x2b, 0x2b)
 BAND_LIGHT = (0x44, 0x44, 0x44)
@@ -62,8 +62,8 @@ DEFAULTS = {
     'line_thickness': 2,
 }
 
-MAX_EXTRA_LINES = 3          # zusätzlich zur festen Konsole/Version-Zeile
-GRAPH_WINDOW = 180           # Frames im Graph-Fenster (3 s bei 60 fps)
+MAX_EXTRA_LINES = 3          # in addition to the fixed console/version row
+GRAPH_WINDOW = 180           # frames in the graph window (3 s at 60 fps)
 
 
 def hex_to_rgb(c, fallback=(255, 255, 255)):
@@ -79,13 +79,13 @@ def hex_to_rgb(c, fallback=(255, 255, 255)):
 
 
 def default_config():
-    """Frische Konfiguration mit sinnvollen Startwerten."""
+    """A fresh configuration with sensible starting values."""
     return {
         'enabled': False,
         'title': {'text': '', 'color': '#FFFFFF'},
         'console': {'text': '', 'color': '#FFFFFF'},
         'version': {'text': '', 'color': '#FFFFFF'},
-        'extra_lines': [],          # Liste von Zeilen, je 1 oder 2 Felder
+        'extra_lines': [],          # list of rows, 1 or 2 fields each
         'fps_color': '#FFFFFF',
         'ft_color': '#FFFFFF',
         'stat_color': '#BBBBBB',
@@ -95,11 +95,11 @@ def default_config():
 
 def normalize_config(cfg):
     """
-    Konfiguration auf einen gültigen Stand bringen.
+    Bring a configuration into a valid state.
 
-    Erzwingt die Regeln der Oberfläche auch dann, wenn die Datei von Hand
-    bearbeitet wurde: höchstens MAX_EXTRA_LINES Zeilen, je Zeile höchstens
-    zwei Felder, und ein breites Feld steht immer allein in seiner Zeile.
+    Enforces the rules of the interface even when the file was edited by
+    hand: at most MAX_EXTRA_LINES rows, at most two fields per row, and a
+    wide field always sits alone in its row.
     """
     base = default_config()
     if not isinstance(cfg, dict):
@@ -121,7 +121,7 @@ def normalize_config(cfg):
                            'wide': bool((f or {}).get('wide', False))})
         if not fields:
             continue
-        # Ein breites Feld belegt die ganze Zeile allein.
+        # A wide field occupies the whole row on its own.
         if fields[0]['wide']:
             fields = fields[:1]
         elif len(fields) == 2 and fields[1]['wide']:
@@ -135,13 +135,13 @@ def normalize_config(cfg):
     return out
 
 
-# ── Geometrie ────────────────────────────────────────────────────────────────
+# ── Geometry ─────────────────────────────────────────────────────────────────
 
 def _bands(cfg, s):
     """
-    Höhen und Farben aller Bänder von oben nach unten.
+    Heights and colours of all bands from top to bottom.
 
-    Returns Liste von (kind, height, band_color).
+    Returns a list of (kind, height, band_color).
     """
     g = cfg['geometry']
     def px(k):
@@ -175,7 +175,7 @@ def panel_origin(cfg, s):
 
 
 def _rounded_mask(w, h, radius):
-    """Alphamaske für abgerundete Ecken (0..255)."""
+    """Alpha mask for rounded corners (0..255)."""
     m = np.zeros((h, w), dtype=np.uint8)
     r = int(max(0, min(radius, min(w, h) // 2)))
     if r <= 0:
@@ -231,9 +231,9 @@ def _static_key(cfg, s):
 
 def build_static_layer(cfg, s):
     """
-    Bänder, Ecken und alle unveränderlichen Texte als RGBA-Layer.
+    Bands, corners and all unchanging text as an RGBA layer.
 
-    Wird pro Konfiguration einmal gebaut und danach für jeden Frame
+    Built once per configuration and reused for every frame after that.
     wiederverwendet.
     """
     key = _static_key(cfg, s)
@@ -249,7 +249,7 @@ def build_static_layer(cfg, s):
 
     layer = np.zeros((h, w, 4), dtype=np.uint8)
 
-    # Bänder füllen
+    # Fill the bands
     geo = {}
     y = 0
     for kind, bh, col in _bands(cfg, s):
@@ -276,7 +276,7 @@ def build_static_layer(cfg, s):
         _text(draw, (pad, ty + th // 2), cfg['title']['text'],
               sz('title_size'), hex_to_rgb(cfg['title']['color']), anchor='lm')
 
-        # Konsole + Version (feste Zeile, zwei Spalten)
+        # Console + version (fixed row, two columns)
         fy, fh = geo['fixed'][0]
         half = w // 2
         _text(draw, (pad, fy + fh // 2), cfg['console']['text'],
@@ -296,8 +296,8 @@ def build_static_layer(cfg, s):
                           sz('row_size'), hex_to_rgb(f['color']), anchor='lm')
 
         rgba = np.array(pil)
-        # Text hat volle Deckkraft; die Bandtransparenz gilt nur für den
-        # Hintergrund, sonst wirkt die Schrift ausgewaschen.
+        # Text is fully opaque; the band transparency applies only to the
+        # background, otherwise the type looks washed out.
         layer = rgba
 
     entry = (layer, geo, _premultiply(layer))
@@ -308,12 +308,12 @@ def build_static_layer(cfg, s):
 
 def _premultiply(layer):
     """
-    Blend-Daten des statischen Layers einmalig vorbereiten.
+    Prepare the static layer's blend data once.
 
-    Ohne das würde pro Frame das gesamte Panel dreimal nach float32
-    konvertiert (Alpha, Vordergrund, Hintergrund) — bei 4K sind das
-    920×652 Pixel, und die Daten ändern sich nie. Vorbereitet bleibt pro
-    Frame nur noch eine Multiplikation plus Addition.
+    Without this, the whole panel would be converted to float32 three times
+    per frame (alpha, foreground, background) - at 4K that is 920x652 pixels,
+    and the data never changes. Prepared like this, only one multiplication
+    plus one addition is left per frame.
     """
     a = layer[:, :, 3:4].astype(np.float32) / 255.0
     return (1.0 - a), layer[:, :, :3].astype(np.float32) * a
@@ -329,16 +329,16 @@ def clear_cache():
 def _draw_graph(canvas, x0, y0, gw, gh, seq, idx, vmin, vmax, color,
                 thickness, center_line=False, invert=False):
     """
-    Kompakter Verlaufsgraph in das Panel zeichnen.
+    Draw a compact trend graph into the panel.
 
-    canvas ist RGB (uint8). Werte außerhalb [vmin, vmax] werden geklemmt,
-    fehlende Werte (None) unterbrechen die Linie.
+    canvas is RGB (uint8). Values outside [vmin, vmax] are clamped, and
+    missing values (None) break the line.
 
-    invert=False: großer Wert oben  — richtig für FPS (60 oben, 0 unten)
-    invert=True:  kleiner Wert oben — richtig für Frametime (16.7 ms oben,
-                  66.7 ms unten), genau wie im Haupt-Overlay. Ohne das
-                  zeigte ein Ruckler im Panel nach oben und im Hauptgraphen
-                  nach unten.
+    invert=False: large value at the top - correct for FPS (60 top, 0 bottom)
+    invert=True:  small value at the top - correct for frame time (16.7 ms at
+                  the top, 66.7 ms at the bottom), exactly as in the main
+                  overlay. Without it, a hitch pointed upwards in the panel
+                  and downwards in the main graph.
     """
     if seq is None or idx is None or gw <= 2 or gh <= 2:
         return
@@ -383,23 +383,23 @@ def _draw_graph(canvas, x0, y0, gw, gh, seq, idx, vmin, vmax, color,
 def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
                  source_fps=60.0, ft_scale=None):
     """
-    Panel in das Bild einblenden. `frame_rgb` wird an Ort und Stelle verändert.
+    Blend the panel into the image. `frame_rgb` is modified in place.
 
-    Ablauf: der gecachte statische Layer wird EINMAL als Ganzes geblendet,
-    danach werden nur die drei veränderlichen Bänder (FPS-Zahl mit Statistik,
-    FPS-Graph, Frametime-Graph) direkt in das Bild gezeichnet.
+    How it works: the cached static layer is blended ONCE as a whole, after
+    which only the three changing bands (FPS number with statistics, FPS
+    graph, frame time graph) are drawn straight into the image.
 
-    Der naheliegende Weg — das komplette Panel pro Frame als RGBA neu
-    aufbauen und dann blenden — kostete bei 4K rund 31 ms pro Frame, weil
-    dabei jedes Mal 920×652 Pixel durch PIL und mehrere numpy-Kopien laufen,
-    obwohl über 80% der Fläche unverändert bleibt.
+    The obvious approach - rebuilding the complete panel as RGBA every frame
+    and then blending it - cost around 31 ms per frame at 4K, because every
+    time 920x652 pixels run through PIL and several numpy copies even though
+    over 80% of the area stays unchanged.
 
     cfg      – Konfiguration (siehe default_config / normalize_config)
-    fps_seq  – vollständige FPS-Sequenz
-    ft_seq   – vollständige Frametime-Sequenz
+    fps_seq  - the complete FPS sequence
+    ft_seq   - the complete frame time sequence
     idx      – aktueller Frame-Index (Playhead)
-    stats    – {'fps': {'avg','min','max'}} für die Statistikzeile
-    ft_scale – (min_ms, max_ms) für den Frametime-Graphen
+    stats    - {'fps': {'avg','min','max'}} for the statistics row
+    ft_scale - (min_ms, max_ms) for the frame time graph
     """
     if not cfg or not cfg.get('enabled'):
         return frame_rgb
@@ -426,7 +426,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     roi += pre[sy:sy + ch, sx:sx + cw]
     frame_rgb[y1:y2, x1:x2] = roi.astype(np.uint8)
 
-    # ── 2. Veränderliche Bänder direkt ins Bild zeichnen ────────────────
+    # ── 2. Draw the changing bands straight into the image ─────────────
     g = cfg['geometry']
 
     def sz(k):
@@ -442,7 +442,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     if fps_seq is not None and idx is not None and 0 <= idx < len(fps_seq):
         cur = fps_seq[idx]
 
-    # FPS-Zahl + Statistik — nur dieses eine Band durch PIL schicken
+    # FPS number + statistics - only this one band goes through PIL
     if PILLOW:
         by, bh = geo['fps'][0]
         ty1 = max(y1, py + by)
@@ -451,7 +451,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
             band = np.ascontiguousarray(frame_rgb[ty1:ty2, x1:x2])
             pil = PILImage.fromarray(band, 'RGB')
             draw = PILDraw.Draw(pil)
-            oy = (py + by) - ty1     # Bandoberkante relativ zum Ausschnitt
+            oy = (py + by) - ty1     # band top edge relative to the crop
             _text(draw, (pad, oy + int(bh * 0.42)),
                   '--' if cur is None else f"{cur:.0f}",
                   sz('fps_size'), fps_col, anchor='lm')
@@ -466,9 +466,9 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
                           sz('stat_size'), stat_col, anchor='lm')
             frame_rgb[ty1:ty2, x1:x2] = np.array(pil)
 
-    # Graphen — direkt auf einen zusammenhängenden Ausschnitt des Bildes.
-    # cv2 lehnt nicht zusammenhängende Slices ab, deshalb pro Band ein
-    # kompakter Puffer statt einer Kopie des ganzen Panels.
+    # Graphs - drawn straight onto a contiguous crop of the image.
+    # cv2 rejects non-contiguous slices, so each band gets a compact buffer
+    # instead of a copy of the whole panel.
     inner_w = cw - 2 * pad
     for kind, seq, lo, hi, col, centre, inv in (
             ('fps_graph', fps_seq, 0.0, float(source_fps) * 1.02, fps_col, True, False),

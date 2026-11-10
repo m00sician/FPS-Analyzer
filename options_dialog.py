@@ -1,5 +1,5 @@
 """
-Options Dialog für FPS Analyzer
+Options Dialog for FPS Analyzer
 Centralizes all configuration that doesn't change frequently:
   - FPS / Frame Time templates
   - Detection sensitivity & Baseline FPS
@@ -97,23 +97,23 @@ class OptionsDialog(QDialog):
         layout = QGridLayout(box)
         layout.setSpacing(10)
 
-        # FPS grid values — freies Textfeld, beliebig viele Werte
-        layout.addWidget(QLabel("FPS Werte:"), 0, 0)
+        # FPS grid values - free text field, any number of values
+        layout.addWidget(QLabel("FPS values:"), 0, 0)
         self.fps_grid_edit = QLineEdit("60,30,0")
-        self.fps_grid_edit.setPlaceholderText("z.B. 60,30,0 oder 60,50,40,30,20")
+        self.fps_grid_edit.setPlaceholderText("e.g. 60,30,0 or 60,50,40,30,20")
         self.fps_grid_edit.setToolTip(
-            "Kommagetrennte FPS-Werte für Gridlinien + Labels.\n"
-            "Der höchste Wert definiert die Skala (max_fps)."
+            "Comma-separated FPS values for grid lines + labels.\n"
+            "The highest value defines the scale (max_fps)."
         )
         layout.addWidget(self.fps_grid_edit, 0, 1)
 
         # Frame-Time grid values
-        layout.addWidget(QLabel("Frame Time Werte (ms):"), 1, 0)
+        layout.addWidget(QLabel("Frame time values (ms):"), 1, 0)
         self.ft_grid_edit = QLineEdit("16.7,33.3,100")
         self.ft_grid_edit.setPlaceholderText("z.B. 16.7,33.3,100")
         self.ft_grid_edit.setToolTip(
-            "Kommagetrennte Frametime-Werte in ms für Gridlinien + Labels.\n"
-            "Kleinster Wert oben, größter unten."
+            "Comma-separated frame time values in ms for grid lines + labels.\n"
+            "Smallest value at the top, largest at the bottom."
         )
         layout.addWidget(self.ft_grid_edit, 1, 1)
 
@@ -130,8 +130,8 @@ class OptionsDialog(QDialog):
 
     @staticmethod
     def _parse_grid(text: str, fallback: list) -> tuple:
-        """Parst '60,x50,30' → ([60.0, 50.0, 30.0], {50.0}).
-        x-Präfix = Skalen-Stützpunkt ohne Label, Gridlinie grau."""
+        """Parses '60,x50,30' -> ([60.0, 50.0, 30.0], {50.0}).
+        An x prefix marks a scale anchor without a label; its grid line is grey."""
         vals, hidden = [], set()
         try:
             for tok in text.split(','):
@@ -189,46 +189,47 @@ class OptionsDialog(QDialog):
 
         # Fade-Erkennung
         from PyQt6.QtWidgets import QCheckBox, QSpinBox
-        self.fade_check = QCheckBox("Fade-/Blend-Erkennung (uniforme Übergänge ausschließen)")
+        self.fade_check = QCheckBox("Fade / blend detection (exclude uniform transitions)")
         self.fade_check.setToolTip(
-            "Erkennt einfarbige Übergänge (Fade to white/black), bei denen das\n"
-            "Bild kurz uniform wird. Solche Frames erzeugen falsche 0-FPS-Spikes.\n"
-            "Der Fade und der eingestellte Puffer davor/danach werden aus\n"
-            "Min/Max/Avg ausgeschlossen; im Graphen bleibt die Lücke sichtbar."
+            "Detects single-colour transitions (fade to white/black) where the\n"
+            "image briefly turns uniform. Such frames produce false 0 FPS spikes.\n"
+            "The fade and the configured buffer before and after it are excluded\n"
+            "from min/max/avg; the gap stays visible in the graph."
         )
         layout.addWidget(self.fade_check, 1, 0, 1, 2)
 
-        # Puffer-Länge in ms (vor/nach dem Fade)
-        layout.addWidget(QLabel("Puffer vor/nach (ms):"), 1, 2)
+        # Buffer length in ms (before / after the fade)
+        layout.addWidget(QLabel("Buffer before/after (ms):"), 1, 2)
         self.fade_buffer_spin = QSpinBox()
         self.fade_buffer_spin.setRange(0, 5000)
         self.fade_buffer_spin.setSingleStep(100)
         self.fade_buffer_spin.setValue(2000)
         self.fade_buffer_spin.setSuffix(" ms")
         self.fade_buffer_spin.setToolTip(
-            "Wie viel Zeit vor und nach dem Fade zusätzlich ausgeschlossen wird.\n"
-            "0 = nur die reinen Fade-Frames. Default 2000 ms."
+            "How much time before and after the fade is excluded as well.\n"
+            "0 = only the fade frames themselves. Default 2000 ms."
         )
         layout.addWidget(self.fade_buffer_spin, 1, 3)
 
-        # Analyse-Daten speichern
-        self.save_data_check = QCheckBox("Analyse-Daten speichern (.fpsdata neben dem Video)")
+        # Save analysis data
+        self.save_data_check = QCheckBox("Save analysis data (.fpsdata next to the video)")
         self.save_data_check.setToolTip(
-            "Speichert die FPS/FT-Analyse als Datei. So kannst du das Video\n"
-            "später über 'Tools → Aus Analyse-Daten encoden' mit anderem Layout\n"
-            "neu rendern, OHNE das komplette Video erneut analysieren zu müssen."
+            "Saves the FPS/FT analysis to a file, so the video can be\n"
+            "re-rendered later with a different layout via 'Tools -> Encode from\n"
+            "Analysis Data', WITHOUT analysing the whole video again."
         )
         layout.addWidget(self.save_data_check, 2, 0, 1, 4)
 
         # Abweichungs-Marker
         self.deviation_check = QCheckBox("Abweichungs-Marker (roter Block oben rechts)")
         self.deviation_check.setToolTip(
-            "Blendet oben rechts einen roten Block ein, solange das Material\n"
-            "vom Baseline-Wert abweicht — also sobald ein Frame länger steht,\n"
-            "als die Baseline erlaubt (bei Baseline 60 alles über 16.7 ms).\n\n"
-            "Grundlage sind die echten Per-Frame-Standzeiten, nicht die\n"
-            "gleitenden FPS: ein einzelner Aussetzer würde dort noch eine ganze\n"
-            "Sekunde nachwirken und den Marker viel zu lange leuchten lassen."
+            "Shows a red block in the top right corner for as long as the\n"
+            "footage deviates from the baseline value - that is, as soon as a\n"
+            "frame is held longer than the baseline allows (with baseline 60,\n"
+            "anything above 16.7 ms).\n\n"
+            "This is based on the real per-frame hold times, not on the rolling\n"
+            "FPS: there, a single hitch would still linger for a whole second\n"
+            "and keep the marker lit far too long."
         )
         layout.addWidget(self.deviation_check, 3, 0, 1, 2)
 
@@ -238,10 +239,10 @@ class OptionsDialog(QDialog):
         self.deviation_hold_spin.setSingleStep(50)
         self.deviation_hold_spin.setSuffix(" ms")
         self.deviation_hold_spin.setToolTip(
-            "Ein einzelner ausgelassener Frame dauert nur 16-33 ms und wäre\n"
-            "kaum zu sehen. Der Marker bleibt deshalb mindestens so lange\n"
-            "stehen. Der Startzeitpunkt verschiebt sich dadurch nicht.\n"
-            "0 = exakt so lange wie die Abweichung. Default 150 ms."
+            "A single dropped frame lasts only 16-33 ms and would be nearly\n"
+            "invisible. The marker therefore stays up at least this long. Its\n"
+            "start time is not shifted by this.\n"
+            "0 = exactly as long as the deviation. Default 150 ms."
         )
         layout.addWidget(self.deviation_hold_spin, 3, 3)
 
@@ -266,7 +267,7 @@ class OptionsDialog(QDialog):
         self.deviation_check.setChecked(bool(getattr(a, 'deviation_marker', False)))
         self.deviation_hold_spin.setValue(int(getattr(a, 'deviation_marker_hold_ms', 150)))
 
-        # Custom-Grid-Werte aus aktuellem Template laden (falls Custom aktiv)
+        # Load custom grid values from the current template (if custom is active)
         try:
             fd = a.fps_graph_combo.currentData() if hasattr(a, 'fps_graph_combo') else None
             if fd and fd.get('values'):
@@ -285,7 +286,7 @@ class OptionsDialog(QDialog):
         """Push all values from the dialog back to the analyzer."""
         a = self.analyzer
 
-        # ── Templates: Custom-Grid-Werte in Parent-Combos injizieren ───
+        # ── Templates: inject custom grid values into the parent combos ───
         fps_vals, fps_hidden = self._parse_grid(self.fps_grid_edit.text(), [60, 30, 0])
         ft_vals,  ft_hidden  = self._parse_grid(self.ft_grid_edit.text(), [16.7, 33.3, 100])
         fps_data = {

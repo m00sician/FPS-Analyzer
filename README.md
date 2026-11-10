@@ -138,5 +138,7 @@ These are properties of video analysis, not bugs:
 
 ## Licence
 
-The in-app About dialog states MIT, but no `LICENSE` file has been added yet.
-Until one is, the usual GitHub default applies: all rights reserved.
+MIT - see [LICENSE](LICENSE).
+
+The whole project, including the interface, code comments and documentation,
+is in English.

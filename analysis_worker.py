@@ -13,7 +13,7 @@ from queue import Queue
 from threading import Thread, Lock
 from PyQt6.QtCore import QThread, pyqtSignal
 
-# CUDA Accelerator für GPU-beschleunigte Frame-Analyse
+# CUDA accelerator for GPU-accelerated frame analysis
 try:
     from cuda_accelerator import get_cuda_analyzer, TORCH_CUDA_AVAILABLE
     CUDA_ACCELERATOR_AVAILABLE = True
@@ -99,7 +99,7 @@ def resize_with_aspect_ratio(frame, target_width, target_height, background_colo
     return result
 
 def adaptive_crop_and_resize(frame, target_width, target_height, comparison_mode=False):
-    # Quelle == Ziel → Resize komplett überspringen (spart ~8ms/Frame bei 4K→4K)
+    # Source == target -> skip the resize entirely (saves ~8ms/frame at 4K->4K)
     h0, w0 = frame.shape[:2]
     if w0 == target_width and h0 == target_height:
         return frame
@@ -109,7 +109,7 @@ def adaptive_crop_and_resize(frame, target_width, target_height, comparison_mode
     h, w = frame.shape[:2]
     
     if comparison_mode:
-        # Log nur einmal pro Video
+        # Log only once per video
         if not hasattr(adaptive_crop_and_resize, '_logged'):
             print(f"Comparison mode: Cropping {w}x{h} → {target_width}x{target_height}")
             adaptive_crop_and_resize._logged = True
@@ -145,7 +145,7 @@ _nvenc_probe_result = None
 _nvenc_hevc_result = None
 
 def _probe_nvenc(codec='h264') -> bool:
-    """Prüft ob ffmpeg + NVENC (h264/hevc) verfügbar sind (~200ms, gecacht)."""
+    """Checks whether ffmpeg + NVENC (h264/hevc) are available (~200ms, cached)."""
     global _nvenc_probe_result, _nvenc_hevc_result
     enc = 'hevc_nvenc' if codec == 'h265' else 'h264_nvenc'
     cached = _nvenc_hevc_result if codec == 'h265' else _nvenc_probe_result
@@ -163,23 +163,23 @@ def _probe_nvenc(codec='h264') -> bool:
         _nvenc_hevc_result = ok
     else:
         _nvenc_probe_result = ok
-    print(f"🔎 NVENC-Probe ({enc}): {'✅ verfügbar' if ok else '❌ nicht verfügbar'}")
+    print(f"🔎 NVENC probe ({enc}): {'✅ available' if ok else '❌ not available'}")
     return ok
 
 
 class FFmpegPipeWriter:
     """
-    Schreibt BGR-Frames direkt in einen ffmpeg-Encode-Prozess (stdin-Pipe).
-    Spart den MJPEG-Zwischenencode + die Zwischendatei + den finalen
-    Re-Encode-Pass komplett ein. API kompatibel zu cv2.VideoWriter
+    Writes BGR frames straight into an ffmpeg encode process (stdin pipe).
+    That removes the intermediate MJPEG encode, the intermediate file and the
+    final re-encode pass completely. API compatible with cv2.VideoWriter
     (write / release / isOpened).
     """
     def __init__(self, output_path, width, height, fps, mode, use_nvenc=True,
                  codec_family='h265', quality_preset='p6'):
         """
-        mode: 'cq' (Qualität, CQ ~18) oder int (Bitrate in Mbps).
-        codec_family: 'h265' (HEVC, empfohlen für 4K) oder 'h264'.
-        quality_preset: NVENC-Preset p1(schnell)..p7(beste Qualität).
+        mode: 'cq' (quality, CQ ~18) or an int (bitrate in Mbps).
+        codec_family: 'h265' (HEVC, recommended for 4K) or 'h264'.
+        quality_preset: NVENC preset p1(fast)..p7(best quality).
         """
         self.ok = False
         self.failed = False
@@ -193,7 +193,7 @@ class FFmpegPipeWriter:
                      '-rc', 'vbr', '-tune', 'hq',
                      '-spatial_aq', '1', '-temporal_aq', '1',
                      '-b_ref_mode', 'middle']
-            # HEVC braucht das explizite Tag für Player-Kompatibilität
+            # HEVC needs the explicit tag for player compatibility
             if codec_family == 'h265':
                 codec += ['-tag:v', 'hvc1']
         else:
@@ -202,7 +202,7 @@ class FFmpegPipeWriter:
 
         # ── Ratecontrol ──
         if mode == 'cq':
-            # Qualitätsbasiert: CQ ~18, aber mit hohem Bitraten-Ceiling
+            # Quality based: CQ ~18, but with a high bitrate ceiling
             if use_nvenc:
                 rate = ['-cq', '18', '-b:v', '0']
             else:
@@ -210,9 +210,9 @@ class FFmpegPipeWriter:
         else:
             b = int(mode)
             if use_nvenc:
-                # VBR mit CQ-Ziel: hält die Ziel-Bitrate, darf aber bei
-                # schnellen Szenen bis maxrate (2×) hochgehen → kein
-                # Macroblocking mehr. bufsize großzügig für Spitzen.
+                # VBR with a CQ target: holds the target bitrate but may rise
+                # to maxrate (2x) in fast scenes -> no more macroblocking.
+                # bufsize is generous to absorb peaks.
                 rate = ['-cq', '19',
                         '-b:v', f'{b}M',
                         '-maxrate', f'{b*2}M',
@@ -226,12 +226,12 @@ class FFmpegPipeWriter:
                '-s', f'{width}x{height}', '-r', f'{fps}',
                '-i', '-',
                *codec, *rate,
-               '-pix_fmt', 'yuv420p',        # sichere Player-Kompatibilität
+               '-pix_fmt', 'yuv420p',        # safe player compatibility
                '-movflags', '+faststart',
                output_path]
         try:
-            # stderr → DEVNULL: MUSS verworfen werden, sonst Pipe-Deadlock
-            # unter Windows sobald der Puffer voll ist.
+            # stderr -> DEVNULL: this MUST be discarded, otherwise the pipe
+            # deadlocks on Windows as soon as the buffer fills up.
             self._proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -273,26 +273,25 @@ class FFmpegPipeWriter:
 
 def deviation_flags(ft_seq, source_fps, baseline_fps, hold_ms=150.0, tolerance=0.15):
     """
-    Markiert Frames, in denen das Material vom Baseline-Wert abweicht.
+    Marks frames in which the footage deviates from the baseline value.
 
-    Definition: ein Frame weicht ab, wenn seine STANDZEIT länger ist, als die
-    Baseline erlaubt. Bei Baseline 60 heißt das alles über 16.7 ms, bei
-    Baseline 30 alles über 33.3 ms. Damit funktioniert die Erkennung auch für
-    30fps-Material in einem 60fps-Container, wo ein doppelter Frame die Norm
-    und kein Fehler ist.
+    Definition: a frame deviates when its HOLD TIME is longer than the
+    baseline allows. With baseline 60 that means anything above 16.7 ms, with
+    baseline 30 anything above 33.3 ms. That way the detection also works for
+    30fps footage in a 60fps container, where a doubled frame is the norm and
+    not an error.
 
-    Grundlage sind die echten Per-Frame-Frametimes, NICHT die gleitenden FPS.
-    Die FPS sind ein 1-Sekunden-Mittel und lägen nach einem einzelnen
-    Aussetzer noch eine volle Sekunde unter der Baseline — der Marker würde
-    weit über das Ereignis hinaus leuchten und dessen Länge falsch darstellen.
+    This is based on the real per-frame frame times, NOT on the rolling FPS.
+    The FPS are a one-second average and would still sit below the baseline a
+    full second after a single hitch - the marker would stay lit far beyond
+    the event and misrepresent its length.
 
-    hold_ms: Mindest-Einblendzeit. Ein einzelner ausgelassener Frame dauert
-    16-33 ms und wäre sonst kaum wahrnehmbar. Der Marker bleibt deshalb
-    mindestens so lange stehen — der Startzeitpunkt verschiebt sich dadurch
-    nicht.
+    hold_ms: minimum display time. A single dropped frame lasts only
+    16-33 ms and would otherwise be barely perceptible. The marker therefore
+    stays up at least this long - its start time is not shifted by this.
 
-    tolerance: Sicherheitsabstand gegen Rundung. Standzeiten sind Vielfache
-    des Refresh-Intervalls, 15% liegen bequem unter dem nächsten Schritt.
+    tolerance: safety margin against rounding. Hold times are multiples of
+    the refresh interval, and 15% sits comfortably below the next step.
     """
     n = len(ft_seq)
     if n == 0:
@@ -318,33 +317,32 @@ def deviation_flags(ft_seq, source_fps, baseline_fps, hold_ms=150.0, tolerance=0
 
 def per_frame_frametimes(dup_flags, source_fps):
     """
-    Echte Frametime pro Frame — aus den Duplikat-Flags statt aus den FPS.
+    The real frame time per frame - from the duplicate flags, not from the FPS.
 
-    HINTERGRUND
-    Bisher wurde die Frametime als `1000 / eff` berechnet, wobei `eff` der
-    gleitende 1-Sekunden-Mittelwert der FPS ist. Damit ist die Frametime per
-    Definition der Kehrwert einer geglätteten Größe — der Graph konnte gar
-    nichts anderes sein als ein weiches Spiegelbild des FPS-Graphen.
+    BACKGROUND
+    The frame time used to be computed as `1000 / eff`, where `eff` is the
+    rolling one-second average of the FPS. That makes the frame time the
+    reciprocal of a smoothed quantity by definition - the graph could not be
+    anything other than a soft mirror image of the FPS graph.
 
-    Digital Foundry zeigt dagegen die Standzeit JEDES EINZELNEN Frames. Ein
-    Frame, dem k Duplikate folgen, stand (k+1) Refresh-Intervalle lang auf
-    dem Bild:
-        60fps-Frame (kein Duplikat) → 16.7 ms
-        30fps-Frame (1 Duplikat)    → 33.3 ms
-        20fps-Frame (2 Duplikate)   → 50.0 ms
-    In gemischtem Material springt der Wert dadurch zwischen diesen Stufen
-    hin und her — das ist die typische Rechteckwelle.
+    Digital Foundry, by contrast, shows the hold time of EVERY SINGLE frame. A
+    frame followed by k duplicates was on screen for (k+1) refresh intervals:
+        60fps frame (no duplicate)   -> 16.7 ms
+        30fps frame (1 duplicate)    -> 33.3 ms
+        20fps frame (2 duplicates)   -> 50.0 ms
 
-    Zum Vergleich, gemessene Sequenz aus 20 Frames 60fps gefolgt von
-    40 Frames 30fps-Muster:
-        per-Frame : 16.7 16.7 33.3 33.3 33.3 33.3 …   (Stufen)
-        geglättet : 16.7 16.7 16.7 17.5 17.4 18.2 …   (weicher Anstieg)
-    Über den 30fps-Abschnitt liefert die geglättete Variante konstant
-    25.0 ms — also den Mittelwert, den es als tatsächliche Standzeit
-    überhaupt nie gab.
+    In mixed footage the value therefore jumps back and forth between those
+    steps - that is the characteristic square wave.
 
-    Der Wert gilt für die gesamte Standzeit, damit die Stufe im Graphen so
-    breit ist wie der Frame wirklich stand.
+    For comparison, a measured sequence of 20 frames at 60fps followed by
+    40 frames of a 30fps pattern:
+        per frame : 16.7 16.7 33.3 33.3 33.3 33.3 …   (steps)
+        smoothed  : 16.7 16.7 16.7 17.5 17.4 18.2 …   (a soft ramp)
+    Across the 30fps stretch the smoothed variant gives a constant 25.0 ms -
+    the average, a hold time that never actually occurred.
+
+    The value applies across the whole hold time, so the step in the graph is
+    as wide as the frame really was on screen.
     """
     n = len(dup_flags)
     if n == 0:
@@ -365,43 +363,43 @@ def per_frame_frametimes(dup_flags, source_fps):
 
 class FFmpegFrameReader:
     """
-    Liefert volle BGR-Frames über eine ffmpeg-Pipe mit NVDEC-Hardwaredecode.
+    Delivers full BGR frames through an ffmpeg pipe with NVDEC hardware decode.
 
-    ⚠️ NICHT STANDARD — dieser Weg war in Messungen auf RTX 4090 / i9-14900K
-    deutlich LANGSAMER als cv2.VideoCapture:
+    ⚠️ NOT THE DEFAULT - in measurements on an RTX 4090 / i9-14900K this route
+    was clearly SLOWER than cv2.VideoCapture:
 
         cv2.VideoCapture                        53.7 fps
         ffmpeg NVDEC, bgr24                     29.1 fps
-        ffmpeg NVDEC, bgr24, 16 Filter-Threads  24.4 fps
+        ffmpeg NVDEC, bgr24, 16 filter threads  24.4 fps
 
-    Der Decode ist dabei nicht das Problem: derselbe NVDEC-Pfad schafft im
-    Vorpass 433-480 fps. Teuer ist, was danach kommt — swscale konvertiert
-    NV12→BGR24 auf der CPU, und das Ergebnis muss als 23.7 MB pro Frame
-    durch eine Prozess-Pipe. cv2.VideoCapture nutzt dieselben
-    ffmpeg-Bibliotheken IN-PROCESS und spart diese Kopie vollständig.
+    The decode is not the problem: the same NVDEC path manages 433-480 fps in
+    the pre-pass. What is expensive is everything after it - swscale converts
+    NV12->BGR24 on the CPU, and the result has to go through a process pipe at
+    23.7 MB per frame. cv2.VideoCapture uses the same ffmpeg libraries
+    IN-PROCESS and avoids that copy entirely.
 
-    Verallgemeinert: die ffmpeg-Pipe gewinnt, solange die Ausgabe klein ist
-    (Vorpass: 128px, 16 KB/Frame → 433 fps), und verliert, sobald volle
-    Frames transportiert werden.
+    Generalised: the ffmpeg pipe wins while the output is small (pre-pass:
+    128px, 16 KB/frame -> 433 fps) and loses as soon as full frames have to be
+    transported.
 
-    Erreichbar über 'render_nvdec': True, falls sich das auf anderer
-    Hardware anders verhält. Der Code ist korrekt und verifiziert:
+    Reachable via 'render_nvdec': True, in case this behaves differently on
+    other hardware. The code is correct and verified:
 
-    Frame-Ausrichtung: der Seek läuft über `-ss <start/fps>`, exakt wie im
-    Vorpass. Gegen cv2.CAP_PROP_POS_FRAMES geprüft (Startframes
-    0/1/7/120/301/450/599): die gelieferten Frames sind BIT-IDENTISCH.
+    Frame alignment: the seek goes through `-ss <start/fps>`, exactly as in
+    the pre-pass. Checked against cv2.CAP_PROP_POS_FRAMES (start frames
+    0/1/7/120/301/450/599): the delivered frames are BIT-IDENTICAL.
 
-    'render_decode_format' wählt das Pipe-Format:
-      'bgr24'   – Standard, bit-exakt wie cv2
-      'yuv420p' – halbe Datenmenge, Konvertierung per cv2. Braucht den
-                  Matrixangleich out_color_matrix=bt601, weil cv2 nur
-                  BT.601 kann: ohne ihn weicht BT.709-Material um bis zu
-                  41 Stufen auf 26% der Pixel ab, mit ihm um max. 11 auf
-                  0.01% der Pixel.
+    'render_decode_format' selects the pipe format:
+      'bgr24'   - the default, bit-exact like cv2
+      'yuv420p' - half the data, converted by cv2. Needs the matrix
+                  adjustment out_color_matrix=bt601, because cv2 only knows
+                  BT.601: without it BT.709 footage deviates by up to
+                  41 levels on 26% of the pixels, with it by at most 11 on
+                  0.01% of the pixels.
 
-    Skaliert wird bewusst NICHT in ffmpeg: die Python-Seite letterboxt über
-    resize_with_aspect_ratio, und das in ffmpeg nachzubauen würde das Bild
-    verändern.
+    Scaling is deliberately NOT done in ffmpeg: the Python side letterboxes
+    through resize_with_aspect_ratio, and rebuilding that in ffmpeg would
+    change the image.
     """
 
     MIN_BUFFER = 8
@@ -414,7 +412,7 @@ class FFmpegFrameReader:
         self.height = int(height)
         self._fmt = decode_format if decode_format in ('bgr24', 'yuv420p') else 'bgr24'
         if self._fmt == 'yuv420p' and (self.width % 2 or self.height % 2):
-            # yuv420p braucht gerade Kantenlängen
+            # yuv420p needs even edge lengths
             self._fmt = 'bgr24'
         if self._fmt == 'yuv420p':
             self._frame_bytes = self.width * self.height * 3 // 2
@@ -442,17 +440,17 @@ class FFmpegFrameReader:
         self._fill_sum = 0
         self._fill_n = 0
 
-        # ── Threading für die Farbkonvertierung ─────────────────────────
-        # Der erste Anlauf lief mit -pix_fmt bgr24 ohne Threading und war
-        # LANGSAMER als der cv2-Pfad (29.1 statt 53.7 fps), obwohl NVDEC
-        # aktiv war. Ursache ist nicht der Decode, sondern die swscale-
-        # Konvertierung NV12→BGR24 auf der CPU: sie läuft einfädig und
-        # schreibt 23.7 MB pro Frame. Gemessen im Container:
-        #     bgr24 ohne Threads       30.6 fps
-        #     bgr24 -filter_threads 8  42.3 fps   (bit-exakt identisch)
-        #     yuv420p roh              73.0 fps   (aber falsche Farbmatrix)
-        # -filter_threads ist der richtige Hebel, weil die Ausgabe dabei
-        # bit-exakt bleibt (geprüft gegen den ungethreadeten Lauf).
+        # ── Threading for the colour conversion ─────────────────────────
+        # The first attempt ran with -pix_fmt bgr24 without threading and was
+        # SLOWER than the cv2 path (29.1 instead of 53.7 fps) even though
+        # NVDEC was active. The cause is not the decode but the swscale
+        # conversion NV12->BGR24 on the CPU: it runs single-threaded and
+        # writes 23.7 MB per frame. Measured in the container:
+        #     bgr24 without threads    30.6 fps
+        #     bgr24 -filter_threads 8  42.3 fps   (bit-exact identical)
+        #     yuv420p raw              73.0 fps   (but the wrong colour matrix)
+        # -filter_threads is the right lever, because the output stays
+        # bit-exact (checked against the unthreaded run).
         try:
             ncpu = max(2, min(16, (os.cpu_count() or 4)))
         except Exception:
@@ -470,9 +468,9 @@ class FFmpegFrameReader:
             if self._n_frames > 0:
                 cmd += ['-frames:v', str(self._n_frames)]
             if self._fmt == 'yuv420p':
-                # Ohne Matrixangleich läse cv2 BT.709-Material als BT.601 —
-                # gemessen bis zu 41 Stufen Abweichung auf 26% der Pixel.
-                # Mit Angleich bleiben max. 11 auf 0.01% der Pixel.
+                # Without the matrix adjustment cv2 would read BT.709 footage
+                # as BT.601 - measured up to 41 levels of deviation on 26% of
+                # the pixels. With it, at most 11 on 0.01% of the pixels.
                 cmd += ['-vf', 'scale=out_color_matrix=bt601']
             cmd += ['-f', 'rawvideo', '-pix_fmt', self._fmt, '-']
             try:
@@ -488,14 +486,14 @@ class FFmpegFrameReader:
                 self._decoder = name
                 break
             except Exception as e:
-                print(f"⚠️ Render-Decoder '{name}' nicht nutzbar ({e})")
+                print(f"⚠️ Render decoder '{name}' not usable ({e})")
                 try:
                     p.kill()
                 except Exception:
                     pass
 
         if self._proc is None:
-            raise RuntimeError('Kein ffmpeg-Decoder für den Render-Pass verfügbar')
+            raise RuntimeError('No ffmpeg decoder available for the render pass')
 
         frame_mb = self._frame_bytes / 1024 ** 2
         print(f"📦 FFmpegFrameReader: {self._decoder}, Format {self._fmt}, "
@@ -507,11 +505,11 @@ class FFmpegFrameReader:
 
     @staticmethod
     def _read_exact(pipe, n):
-        # bytearray, NICHT bytes: np.frombuffer auf bytes liefert ein
-        # schreibgeschütztes Array. Bei Quelle == Ziel reicht
-        # resize_with_aspect_ratio den Frame unverändert durch, er landet
-        # also direkt in der Weiterverarbeitung — und die cv2-Frames des
-        # alten Pfades waren beschreibbar. Gleiches Verhalten beibehalten.
+        # bytearray, NOT bytes: np.frombuffer on bytes returns a read-only
+        # array. When source == target, resize_with_aspect_ratio passes the
+        # frame through unchanged, so it goes straight into further
+        # processing - and the cv2 frames of the old path were writable.
+        # Keep the same behaviour.
         buf = bytearray()
         while len(buf) < n:
             chunk = pipe.read(n - len(buf))
@@ -560,18 +558,18 @@ class FFmpegFrameReader:
 
     def get_diagnostics(self):
         if not self._reads:
-            return "FFmpegFrameReader: keine Reads"
+            return "FFmpegFrameReader: no reads"
         avg_fill = (self._fill_sum / self._fill_n) if self._fill_n else 0.0
         cap = self._queue.maxsize
         sp = self.starvation_pct()
         if sp > 20:
-            verdict = f"DECODER ist der Flaschenhals (trotz {self._decoder})"
+            verdict = f"the DECODER is the bottleneck (despite {self._decoder})"
         elif avg_fill > cap * 0.7:
-            verdict = "RENDER-WORKER sind der Flaschenhals"
+            verdict = "the RENDER WORKERS are the bottleneck"
         else:
-            verdict = "Decoder und Worker etwa im Gleichgewicht"
-        return (f"FFmpegFrameReader ({self._decoder}): {sp:.1f}% der Frames aus "
-                f"leerem Puffer, mittlerer Füllstand {avg_fill:.0f}/{cap} → {verdict}")
+            verdict = "decoder and workers roughly in balance"
+        return (f"FFmpegFrameReader ({self._decoder}): {sp:.1f}% of frames from "
+                f"an empty buffer, average fill {avg_fill:.0f}/{cap} -> {verdict}")
 
     def stop(self):
         self._stop = True
@@ -628,7 +626,7 @@ class AsyncFrameReader:
                           min(self.MAX_BUFFER, budget // max(frame_bytes, 1)))
 
         self._queue: Queue = Queue(maxsize=buffer_size)
-        # Diagnose-Zähler (siehe next_frame/get_diagnostics)
+        # Diagnostic counters (see next_frame/get_diagnostics)
         self._reads = 0
         self._starved = 0
         self._fill_sum = 0
@@ -651,14 +649,14 @@ class AsyncFrameReader:
 
     def next_frame(self):
         """Return (ret, frame) — blocks only if buffer is empty (should be rare)."""
-        # ── Diagnose: läuft der Puffer leer? ────────────────────────────
-        # Entscheidet, wo der Flaschenhals im Render-Pass liegt:
-        #   Puffer regelmäßig LEER  → der Decoder kommt nicht nach. Der
-        #     Render-Pass dekodiert mit cv2.VideoCapture, also in SOFTWARE
-        #     und in genau EINEM Thread — anders als der Vorpass, der über
-        #     ffmpeg/NVDEC läuft (deshalb dort 313 fps bei 4K).
-        #   Puffer regelmäßig VOLL  → die Render-Worker sind der Flaschenhals
-        #     (Overlay-Zeichnen, GIL).
+        # ── Diagnostics: does the buffer run empty? ─────────────────────
+        # Decides where the bottleneck in the render pass sits:
+        #   buffer regularly EMPTY -> the decoder cannot keep up. The render
+        #     pass decodes with cv2.VideoCapture, i.e. in SOFTWARE and in
+        #     exactly ONE thread - unlike the pre-pass, which goes through
+        #     ffmpeg/NVDEC (hence 313 fps at 4K there).
+        #   buffer regularly FULL  -> the render workers are the bottleneck
+        #     (overlay drawing, GIL).
         self._reads += 1
         if self._queue.empty():
             self._starved += 1
@@ -668,28 +666,28 @@ class AsyncFrameReader:
         return self._queue.get()
 
     def starvation_pct(self):
-        """Anteil der Frames, die aus einem leeren Puffer geholt wurden."""
+        """Share of frames that were taken from an empty buffer."""
         if not self._reads:
             return 0.0
         return 100.0 * self._starved / self._reads
 
     def get_diagnostics(self):
-        """Kurzbericht über die Puffer-Auslastung des Render-Pass-Decoders."""
+        """Short report on the buffer utilisation of the render pass decoder."""
         if not self._reads:
-            return "AsyncFrameReader: keine Reads"
+            return "AsyncFrameReader: no reads"
         starve_pct = 100.0 * self._starved / self._reads
         avg_fill = (self._fill_sum / self._fill_n) if self._fill_n else 0.0
         cap = self._queue.maxsize
         if starve_pct > 20:
-            verdict = ("DECODER ist der Flaschenhals — cv2-Softwaredecode "
-                       "single-threaded schafft das Tempo nicht")
+            verdict = ("the DECODER is the bottleneck - single-threaded cv2 "
+                       "software decode cannot keep up")
         elif avg_fill > cap * 0.7:
-            verdict = ("RENDER-WORKER sind der Flaschenhals — Decoder liefert "
-                       "schneller als gezeichnet wird")
+            verdict = ("the RENDER WORKERS are the bottleneck - the decoder "
+                       "delivers faster than they draw")
         else:
-            verdict = "Decoder und Worker etwa im Gleichgewicht"
-        return (f"AsyncFrameReader: {starve_pct:.1f}% der Frames aus leerem Puffer "
-                f"geholt, mittlerer Füllstand {avg_fill:.0f}/{cap} → {verdict}")
+            verdict = "decoder and workers roughly in balance"
+        return (f"AsyncFrameReader: {starve_pct:.1f}% of frames taken from an empty "
+                f"buffer, average fill {avg_fill:.0f}/{cap} -> {verdict}")
 
     def stop(self):
         self._stop = True
@@ -745,7 +743,7 @@ class AnalysisWorker(QThread):
         self._fps_window       = collections.deque(maxlen=120)  # recent unique/dup decisions
         self._diff_history_raw = collections.deque(maxlen=30)   # for min-diff floor
         
-        # Debug: Zeige ob Comparison-Mode aktiv ist und welche diff_threshold verwendet wird
+        # Debug: show whether comparison mode is active and which diff_threshold is used
         is_comparison = settings.get('comparison_mode', False)
 
                 # ===== CUDA Accelerator initialisieren =====
@@ -778,11 +776,11 @@ class AnalysisWorker(QThread):
 
     def is_frame_duplicate_corrected(self, current_gray, prev_gray):
         """
-        Tile-basierte Duplikat-Erkennung mit adaptivem Threshold.
-        Siehe frame_detection.py für die vollständige Beschreibung:
-          - 8×8 Kachel-Vergleich (robust gegen lokale Bewegung + Encoder-Rauschen)
-          - Adaptiver Threshold via Largest-Gap-Clustering (robust in dunklen Szenen)
-          - PairDiff-Override als Sicherheitsnetz
+        Tile-based duplicate detection with an adaptive threshold.
+        See frame_detection.py for the full description:
+          - 8x8 tile comparison (robust against local motion + encoder noise)
+          - adaptive threshold via largest-gap clustering (robust in dark scenes)
+          - PairDiff override as a safety net
         """
         self.total_processed += 1
 
@@ -804,7 +802,7 @@ class AnalysisWorker(QThread):
                   f"adaptive={self._tile_detector.adaptive_active}, "
                   f"duplicate={is_duplicate}")
 
-        # Diagnose alle 300 Frames — zeigt Score-Verteilung vs. Threshold
+        # Diagnostics every 300 frames - shows the score distribution vs. the threshold
         if self.total_processed % 300 == 0:
             print(f"🔍 DETECT [{self.total_processed}]: {self._tile_detector.get_diagnostics()}")
 
@@ -973,24 +971,24 @@ class AnalysisWorker(QThread):
         # Ensure fonts are ready
         font_settings = self.ensure_truetype_fonts(font_settings)
 
-        # COMPARISON MODE läuft jetzt durch den vollen CodeRenderer (Layout
-        # wurde vor dem Render-Loop einmalig gebaut) — hier nichts weiter nötig.
+        # COMPARISON MODE now runs through the full CodeRenderer (the layout
+        # was built once before the render loop) - nothing more needed here.
 
         # Get necessary configurations
         layout_config = self.settings.get('layout_config')
         template_config = dict(self.settings.get('template_config') or {})
-        # Das Stats-Panel braucht die Quell-Framerate fuer die Graph-Skala.
+        # The stats panel needs the source frame rate for the graph scale.
         template_config.setdefault('source_fps',
                                    self.settings.get('source_fps', 60.0))
         
-        # Falls template_config nicht definiert ist, erstellen
+        # Create template_config if it is not defined
         if not template_config:
             template_config = {
                 'fps_graph_template': self.settings.get('fps_graph_template'),
                 'frametime_template': self.settings.get('frametime_template')
             }
-        # Overlay-Style + Liniendicke immer aus den Settings mergen,
-        # damit Layout-Editor-Einstellungen den Renderer erreichen
+        # Always merge the overlay style + line thickness from the settings,
+        # so Layout Editor settings reach the renderer
         if 'overlay_style' not in template_config:
             template_config['overlay_style'] = self.settings.get('overlay_style', {})
         if 'fps_line_thickness' not in template_config:
@@ -1032,14 +1030,14 @@ class AnalysisWorker(QThread):
             (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
             x, y = 50, 80
             
-            # Schwarzer Hintergrund für bessere Lesbarkeit
+            # Black background for better legibility
             cv2.rectangle(overlay, (x-10, y-text_height-10), (x+text_width+10, y+10), (0, 0, 0), -1)
             
-            # Text mit Rand
+            # Text with an outline
             cv2.putText(overlay, text, (x, y), font, font_scale, (0, 0, 0), thickness+2, cv2.LINE_AA)
             cv2.putText(overlay, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
             
-            # Info dass Minimal Mode aktiv ist
+            # Note that minimal mode is active
             info_text = "Minimal Mode (Check templates folder)"
             cv2.putText(overlay, info_text, (x, y+50), font, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
             
@@ -1060,14 +1058,14 @@ class AnalysisWorker(QThread):
     
     def _stats_warmup_frames(self, source_fps):
         """
-        Anzahl Frames am Segment-Anfang, die NICHT in MIN/MAX/AVG eingehen.
+        Number of frames at the start of the segment that do NOT enter MIN/MAX/AVG.
 
-        Grund: das gleitende 1s-Fenster der FPS-Berechnung ist am Anfang noch
-        nicht gefüllt, und der adaptive Detektor braucht Historie (MIN_HISTORY
-        = 20 Frames) bevor er sinnvoll arbeitet. Werte aus dieser Phase sind
-        systematisch zu niedrig und würden MIN und AVG verfälschen.
+        Reason: the rolling 1s window of the FPS computation is not yet full at
+        the start, and the adaptive detector needs history (MIN_HISTORY = 20
+        frames) before it works sensibly. Values from that phase are
+        systematically too low and would distort MIN and AVG.
 
-        Default 2.0s (einstellbar über 'stats_warmup_seconds').
+        Default 2.0s (configurable via 'stats_warmup_seconds').
         """
         warm_s = float(self.settings.get('stats_warmup_seconds', 2.0))
         return int(round(max(0.0, warm_s) * source_fps))
@@ -1075,20 +1073,21 @@ class AnalysisWorker(QThread):
     @staticmethod
     def _stats_valid_mask(fps_seq, ft_seq, source_fps, warm_n):
         """
-        Liefert die Indizes, die in MIN/MAX/AVG eingehen — für FPS und
-        Frametime IDENTISCH.
+        Returns the indices that enter MIN/MAX/AVG - IDENTICAL for FPS and
+        frame time.
 
-        Das ist der Kern des Fixes: vorher hatten beide Statistiken eigene
-        Filter (fps: 1.0 < v <= source_fps*1.05, ft: 0.5 < v < 2000.0).
-        Ein Frame mit eff=0 liefert per Definition ft=1000.0 (Sentinel aus
-        `ft = 1000.0/eff if eff > 0 else 1000.0`). Der FPS-Filter warf ihn
-        raus, der FT-Filter ließ ihn durch → die Frametime-Statistik enthielt
-        Frames, die die FPS-Statistik nicht kennt. Sichtbare Folge: MAX
-        Frametime = exakt 1000.0ms und ein AVG, das nicht zum AVG der FPS
-        passt (Log: FPS Avg=57.27 → müsste ~17.5ms sein, angezeigt 22.76ms).
+        This is the core of the fix: both statistics used to have filters of
+        their own (fps: 1.0 < v <= source_fps*1.05, ft: 0.5 < v < 2000.0).
+        A frame with eff=0 yields ft=1000.0 by definition (the sentinel from
+        `ft = 1000.0/eff if eff > 0 else 1000.0`). The FPS filter threw it
+        out, the FT filter let it through -> the frame time statistics
+        contained frames the FPS statistics knew nothing about. Visible
+        consequence: a MAX frame time of exactly 1000.0ms and an AVG that did
+        not match the AVG of the FPS (log: FPS avg=57.27 -> should be ~17.5ms,
+        displayed 22.76ms).
 
-        Jetzt entscheidet ausschließlich der FPS-Wert über die Gültigkeit;
-        die Frametime folgt demselben Frame-Set.
+        Now the FPS value alone decides validity; the frame time follows the
+        same frame set.
         """
         idx = []
         n = min(len(fps_seq), len(ft_seq))
@@ -1103,7 +1102,7 @@ class AnalysisWorker(QThread):
         return idx
 
     def _compute_final_stats(self, fps_seq, ft_seq, source_fps):
-        """Finale MIN/MAX/AVG für FPS und Frametime."""
+        """Final MIN/MAX/AVG for FPS and frame time."""
         warm_n = self._stats_warmup_frames(source_fps)
         idx = self._stats_valid_mask(fps_seq, ft_seq, source_fps, warm_n)
         if not idx:
@@ -1111,17 +1110,17 @@ class AnalysisWorker(QThread):
             return dict(empty), dict(empty)
         f = [fps_seq[i] for i in idx]
 
-        # ── Frametime-Stichprobe ────────────────────────────────────────
-        # Im Modus 'per_frame' trägt jeder Quellframe den Wert der Standzeit,
-        # zu der er gehört. Für den GRAPHEN ist das richtig — die Stufe muss
-        # so breit sein wie der Frame wirklich stand. Für den MITTELWERT wäre
-        # es falsch: lange Standzeiten würden mehrfach gezählt und den Wert
-        # nach oben ziehen (gerechnet an einem Clip mit 21% Duplikaten:
-        # 25.89 ms statt der korrekten 21.10 ms).
-        # Richtig ist ein Wert pro TATSÄCHLICH PRÄSENTIERTEM Frame, also nur
-        # an den Lauf-Anfängen. Probe: Gesamtzeit / Anzahl präsentierter
-        # Frames = 1779 × 16.667 / 1405 = 21.10 ms — deckt sich mit dem
-        # Kehrwert der mittleren FPS.
+        # ── Frame time sample ───────────────────────────────────────────
+        # In 'per_frame' mode every source frame carries the value of the hold
+        # time it belongs to. For the GRAPH that is right - the step has to be
+        # as wide as the frame really was on screen. For the AVERAGE it would
+        # be wrong: long hold times would be counted several times and pull
+        # the value up (computed on a clip with 21% duplicates: 25.89 ms
+        # instead of the correct 21.10 ms).
+        # What is right is one value per ACTUALLY PRESENTED frame, i.e. only
+        # at the start of each run. Check: total time / number of presented
+        # frames = 1779 x 16.667 / 1405 = 21.10 ms - which matches the
+        # reciprocal of the mean FPS.
         flags = getattr(self, '_full_dup_flags', None)
         per_frame_mode = (self.settings.get('frametime_mode', 'per_frame')
                           == 'per_frame')
@@ -1133,19 +1132,19 @@ class AnalysisWorker(QThread):
             ft_idx = idx
         t = [ft_seq[i] for i in ft_idx]
 
-        print(f"📊 Statistik-Basis: {len(idx)} von {len(fps_seq)} Frames "
-              f"(Warmup {warm_n} Frames = {warm_n/max(source_fps,1):.1f}s ausgeschlossen)"
-              + (f", Frametime über {len(ft_idx)} präsentierte Frames"
+        print(f"📊 Statistics basis: {len(idx)} of {len(fps_seq)} frames "
+              f"(warmup {warm_n} frames = {warm_n/max(source_fps,1):.1f}s excluded)"
+              + (f", frame time across {len(ft_idx)} presented frames"
                  if len(ft_idx) != len(idx) else ""))
         return ({'avg': sum(f)/len(f), 'min': min(f), 'max': max(f)},
                 {'avg': sum(t)/len(t), 'min': min(t), 'max': max(t)})
 
     def _precompute_display_stats(self, source_fps, fps_update_interval):
         """
-        Displayed-FPS + laufende Min/Max/Avg pro Frame VORAB berechnen.
-        Macht den Render-Pass zustandslos → parallelisierbar.
-        Repliziert exakt die sequentielle Logik (Update-Intervall, Warmup,
-        Fade-Lücken halten letzten Wert).
+        Precompute the displayed FPS + the running min/max/avg per frame.
+        Makes the render pass stateless -> parallelisable.
+        Replicates the sequential logic exactly (update interval, warmup, fade
+        gaps holding the last value).
         """
         seq, fts = self._full_fps_seq, self._full_ft_seq
         n = len(seq)
@@ -1173,9 +1172,9 @@ class AnalysisWorker(QThread):
                 cnt = 0
             disp[i] = -1 if i <= 60 else shown
             if i >= warm:
-                # FPS entscheidet über Gültigkeit, Frametime folgt demselben
-                # Frame — sonst enthält die FT-Statistik den 1000ms-Sentinel
-                # aus 0-fps-Frames, den die FPS-Statistik verwirft.
+                # FPS decides validity and the frame time follows the same
+                # frame - otherwise the FT statistics would contain the 1000ms
+                # sentinel from 0 fps frames, which the FPS statistics reject.
                 tv = fts[i] if i < len(fts) else None
                 valid = (sv is not None and 1.0 < sv <= source_fps * 1.05
                          and tv is not None and 0.5 < tv < 2000.0)
@@ -1183,19 +1182,19 @@ class AnalysisWorker(QThread):
                     fa['sum'] += sv; fa['n'] += 1
                     fa['min'] = sv if fa['min'] is None else min(fa['min'], sv)
                     fa['max'] = sv if fa['max'] is None else max(fa['max'], sv)
-                    # Frametime nur an präsentierten Frames zählen, sonst
-                    # würden lange Standzeiten mehrfach eingehen (siehe
+                    # Count the frame time only at presented frames, otherwise
+                    # long hold times would be counted several times (see
                     # _compute_final_stats).
                     if not (_per_frame and _flags[i]):
                         ta['sum'] += tv; ta['n'] += 1
                         ta['min'] = tv if ta['min'] is None else min(ta['min'], tv)
                         ta['max'] = tv if ta['max'] is None else max(ta['max'], tv)
-            # Während der Warmup-Phase KEINE Statistik einblenden. Vorher stand
-            # hier ein Fallback auf self._final_*_stats — dadurch zeigte das
-            # Overlay ab Frame 0 bereits die Endwerte des ganzen Segments an,
-            # also Zahlen, die zu diesem Zeitpunkt noch gar nicht gemessen sein
-            # können. None lässt der Renderer bewusst aus (_draw_stats bricht
-            # bei fehlenden Daten ab).
+            # Show NO statistics during the warmup phase. There used to be a
+            # fallback to self._final_*_stats here - which meant the overlay
+            # already showed the final values of the whole segment from frame
+            # 0, i.e. numbers that could not possibly have been measured at
+            # that point. None is deliberately left out by the renderer
+            # (_draw_stats bails out on missing data).
             pf[i] = ({'avg': fa['sum']/fa['n'], 'min': fa['min'], 'max': fa['max']}
                      if fa['n'] else None)
             pt[i] = ({'avg': ta['sum']/ta['n'], 'min': ta['min'], 'max': ta['max']}
@@ -1206,17 +1205,17 @@ class AnalysisWorker(QThread):
                              source_fps, target_width, target_height,
                              fps_update_interval, segment_frames):
         """
-        Paralleler Render-Pass: N Worker-Threads rendern Overlays, ein
-        Reorder-Encoder schreibt die Frames in strikter Reihenfolge in die
-        NVENC-Pipe. Möglich weil der Render-Pass durch den Vorpass
-        zustandslos ist (jeder Frame hängt nur an seinem Index).
+        Parallel render pass: N worker threads render overlays, and one
+        reorder encoder writes the frames into the NVENC pipe in strict order.
+        Possible because the pre-pass makes the render pass stateless (every
+        frame depends only on its index).
         """
         import threading as _th
         import traceback as _tb
         workers = max(2, min(12, int(self.settings.get('render_workers', 6))))
-        print(f"⚡ Paralleles Rendering: {workers} Worker-Threads")
+        print(f"⚡ Parallel rendering: {workers} worker threads")
 
-        # GPU-Blends nicht über Threads teilen → CPU-Blend (numpy, GIL-frei)
+        # Do not share GPU blends across threads -> CPU blend (numpy, GIL-free)
         self._force_cpu_blend = True
 
         disp, pf, pt = self._precompute_display_stats(source_fps, fps_update_interval)
@@ -1242,11 +1241,11 @@ class AnalysisWorker(QThread):
         done_q = Queue(maxsize=workers * 4)
         t_start = time.perf_counter()
 
-        # ── Stufen-Zeitmessung (thread-sicher aufsummiert) ──────────────
-        # Beantwortet: geht die Zeit ins Skalieren, in die Farbkonvertierung
-        # oder ins Overlay-Zeichnen? Summen über ALLE Worker, deshalb ist
-        # die Summe größer als die Wanduhr-Zeit — entscheidend ist das
-        # Verhältnis der Posten zueinander.
+        # ── Stage timing (accumulated thread-safely) ────────────────────
+        # Answers: does the time go into scaling, into the colour conversion
+        # or into drawing the overlay? These are sums across ALL workers, so
+        # the total is larger than the wall-clock time - what matters is the
+        # ratio between the items.
         _stage = {'resize': 0.0, 'cvt_in': 0.0, 'overlay': 0.0, 'cvt_out': 0.0}
         _stage_lock = Lock()
 
@@ -1291,7 +1290,7 @@ class AnalysisWorker(QThread):
                     fb = _render_one(w_idx, fr)
                 except Exception as e:
                     _tb.print_exc()
-                    print(f"⚠️ Render-Worker Fehler @Frame {w_idx}: {e} — Frame ohne Overlay")
+                    print(f"⚠️ Render worker error @frame {w_idx}: {e} - frame without overlay")
                     try:
                         fb = resize_with_aspect_ratio(fr, target_width, target_height)
                     except Exception:
@@ -1326,10 +1325,10 @@ class AnalysisWorker(QThread):
                 nxt += 1
                 if w % 30 == 0:
                     prog = 15 + int((w / max(1, segment_frames)) * 70)
-                    # Fade-ausgeschlossene Frames sind None. Vorher wurden sie
-                    # hier als "FPS: 0.0" geloggt und sahen dadurch aus wie ein
-                    # echter 0-fps-Einbruch — im Overlay hält der Graph an
-                    # dieser Stelle aber korrekt den letzten Wert.
+                    # Fade-excluded frames are None. They used to be logged
+                    # here as "FPS: 0.0", which made them look like a real
+                    # 0 fps drop - while in the overlay the graph correctly
+                    # holds the last value at that point.
                     _sv = seq[w-1] if (w-1) < len(seq) else None
                     _fps_txt = "FPS: --- (Fade)" if _sv is None else f"FPS: {_sv:.1f}"
                     dr = (self.duplicate_count / self.total_processed * 100)                          if self.total_processed else 0
@@ -1348,8 +1347,8 @@ class AnalysisWorker(QThread):
         enc_t = _th.Thread(target=_encoder, daemon=True)
         enc_t.start()
 
-        # Frame 0 einmal SYNCHRON rendern → bg/border/Font-Caches werden vom
-        # Hauptthread aufgebaut, bevor die Worker parallel loslegen.
+        # Render frame 0 SYNCHRONOUSLY once -> the bg/border/font caches are
+        # built by the main thread before the workers start in parallel.
         ret, first = frame_reader.next_frame()
         if not ret:
             disp_state['done'] = True
@@ -1390,38 +1389,38 @@ class AnalysisWorker(QThread):
         if idx:
             print(f"⚡ PARALLEL fertig: {idx} Frames in {dt:.1f}s "
                   f"({idx/max(dt, 1e-6):.1f} FPS, {dt/idx*1000:.1f}ms/Frame)")
-            # ── Wo geht die Zeit hin? ───────────────────────────────────
+            # ── Where does the time go? ─────────────────────────────────
             _tot = sum(_stage.values()) or 1e-9
-            print(f"⏲️  Render-Pass Aufschlüsselung (Summe über {workers} Worker, "
-                  f"{_tot:.1f}s Worker-Zeit für {dt:.1f}s Wanduhr):")
-            for _k, _label in (('resize',  'Skalieren/Croppen'),
-                               ('cvt_in',  'Farbkonvertierung BGR→RGB'),
-                               ('overlay', 'Overlay zeichnen'),
-                               ('cvt_out', 'Farbkonvertierung RGB→BGR')):
+            print(f"⏲️  Render pass breakdown (summed across {workers} workers, "
+                  f"{_tot:.1f}s of worker time for {dt:.1f}s wall clock):")
+            for _k, _label in (('resize',  'Scaling/cropping'),
+                               ('cvt_in',  'Colour conversion BGR->RGB'),
+                               ('overlay', 'Drawing the overlay'),
+                               ('cvt_out', 'Colour conversion RGB->BGR')):
                 _v = _stage[_k]
                 print(f"     {_label:28s} {_v*1000/idx:7.2f} ms/Frame  "
                       f"({100*_v/_tot:5.1f}%)")
             _par = _tot / max(dt, 1e-9)
-            # Niedrige Parallelität heißt NICHT automatisch GIL. Wenn der
-            # Decoder die Worker aushungert, laufen sie zwangsläufig seriell
-            # — im 4K-Lauf vom 30.07. meldete die Zeile "GIL-limitiert" bei
-            # 97.8% Puffer-Leerlauf, was die Ursache falsch benannt hätte.
+            # Low parallelism does NOT automatically mean the GIL. When the
+            # decoder starves the workers they inevitably run serially - in
+            # the 4K run of 30 July this line reported "GIL limited" at 97.8%
+            # buffer starvation, which would have named the wrong cause.
             try:
                 _starve = frame_reader.starvation_pct()
             except Exception:
                 _starve = 0.0
             if _par >= workers * 0.6:
-                _verdict = "gute Skalierung"
+                _verdict = "scales well"
             elif _starve > 25:
-                _verdict = (f"nicht GIL — Worker warten auf den Decoder "
+                _verdict = (f"not the GIL - workers waiting on the decoder "
                             f"({_starve:.0f}% Leerlauf)")
             else:
-                _verdict = "GIL-limitiert"
-            print(f"     Effektive Parallelität: {_par:.2f}× von {workers} Workern "
+                _verdict = "GIL limited"
+            print(f"     Effective parallelism: {_par:.2f}x of {workers} workers "
                   f"({_verdict})")
             if _starve > 25 and _tot > 0:
                 _ceiling = idx / max(_tot / workers, 1e-9)
-                print(f"     Rechnerische Obergrenze ohne Decode-Limit: "
+                print(f"     Computed ceiling without the decode limit: "
                       f"~{_ceiling:.0f} fps (aktuell {idx/max(dt,1e-9):.1f} fps)")
             try:
                 print(f"     {frame_reader.get_diagnostics()}")
@@ -1438,19 +1437,18 @@ class AnalysisWorker(QThread):
     def _iter_prepass_gray(self, cap, actual_start, actual_end, source_fps,
                            preroll=0):
         """
-        Liefert 128x128-Graustufen-Frames für den Vorpass — so schnell wie möglich.
-        Decode-Kette: NVDEC (GPU) → ffmpeg-Software → cv2-Fallback.
+        Delivers 128x128 greyscale frames for the pre-pass - as fast as possible.
+        Decode chain: NVDEC (GPU) -> ffmpeg software -> cv2 fallback.
 
-        Kern-Trick: Der Vorpass braucht NIE das volle Bild (Detektor + Fade
-        arbeiten auf 128px). ffmpeg dekodiert + verkleinert + wandelt selbst
-        und pipet nur 16KB/Frame statt ~24MB (4K-BGR) nach Python — der
-        Vorpass ist damit nicht mehr Decode-limitiert.
+        The core trick: the pre-pass NEVER needs the full image (the detector
+        and fade detection work on 128px). ffmpeg decodes, downscales and
+        converts by itself and pipes only 16KB/frame instead of ~24MB (4K
+        BGR) into Python - so the pre-pass is no longer decode limited.
 
-        preroll: Anzahl Frames VOR actual_start, die zusätzlich vorne
-        angehängt werden. Sie dienen nur dem Warmlaufen von Detektor und
-        Fenster und werden vom Aufrufer verworfen (siehe
-        _prepass_collect_fps). Der Aufrufer muss sicherstellen, dass
-        preroll <= actual_start gilt.
+        preroll: the number of frames BEFORE actual_start that are prepended.
+        They only serve to warm up the detector and the window, and the caller
+        discards them (see _prepass_collect_fps). The caller must make sure
+        that preroll <= actual_start.
         """
         preroll = max(0, min(int(preroll), int(actual_start)))
         decode_start = actual_start - preroll
@@ -1492,7 +1490,7 @@ class AnalysisWorker(QThread):
                 proc, first, name_used = p, f0, name
                 break
             except Exception as e:
-                print(f"⚠️ Vorpass-Decoder '{name}' nicht nutzbar — nächster Fallback ({e})")
+                print(f"⚠️ Pre-pass decoder '{name}' not usable - next fallback ({e})")
                 if p is not None:
                     try:
                         p.kill()
@@ -1502,7 +1500,7 @@ class AnalysisWorker(QThread):
         if proc is not None:
             try:
                 self._prepass_decoder = name_used
-                print(f"⚡ Vorpass-Decoder: {name_used} (128px-Gray-Pipe)")
+                print(f"⚡ Pre-pass decoder: {name_used} (128px grey pipe)")
                 yield np.frombuffer(first, dtype=np.uint8).reshape(128, 128)
                 served = 1
                 while served < n_frames and not self.is_cancelled:
@@ -1519,8 +1517,8 @@ class AnalysisWorker(QThread):
                     pass
 
         # cv2-Fallback: alter Weg (voller Decode + Shrink in Python)
-        self._prepass_decoder = 'cv2-Fallback'
-        print("🐢 Vorpass-Decoder: cv2-Fallback (voller Frame-Decode)")
+        self._prepass_decoder = 'cv2 fallback'
+        print("🐢 Pre-pass decoder: cv2 fallback (full frame decode)")
         cap.set(cv2.CAP_PROP_POS_FRAMES, decode_start)
         served = 0
         while served < n_frames:
@@ -1535,10 +1533,10 @@ class AnalysisWorker(QThread):
 
     def _prepass_collect_fps(self, cap, actual_start, actual_end, source_fps):
         """
-        Pass 1: Sammelt die FPS/FT-Werte pro Frame OHNE Rendering.
-        Nötig für den DF-Playhead-Graphen (Render-Pass braucht die Zukunft).
-        Liefert (fps_seq, ft_seq, fade_excluded_set).
-        Nutzt exakt dieselbe Detektions- und Fensterlogik wie der Render-Pass.
+        Pass 1: collects the FPS/FT values per frame WITHOUT rendering.
+        Needed for the DF playhead graph (the render pass needs the future).
+        Returns (fps_seq, ft_seq, fade_excluded_set).
+        Uses exactly the same detection and window logic as the render pass.
         """
         import collections as _c
         detection_window = _c.deque(maxlen=int(source_fps))
@@ -1547,7 +1545,7 @@ class AnalysisWorker(QThread):
         prev_gray = None
         last_eff = source_fps
 
-        # Eigener Detektor-Zustand (getrennt vom Render-Pass)
+        # Its own detector state (separate from the render pass)
         self._tile_detector = None
         self.total_processed = 0
         self.duplicate_count = 0
@@ -1560,50 +1558,50 @@ class AnalysisWorker(QThread):
                 std_threshold=float(self.settings.get('fade_std_threshold', 8.0)),
                 buffer_seconds=float(self.settings.get('fade_buffer_ms', 2000)) / 1000.0,
             )
-            print(f"🎬 Fade-Vorpass AKTIV (std<{fade_det.std_threshold}, "
-                  f"Puffer {fade_det.buffer_frames} Frames, min {fade_det.min_fade_frames} Frames)")
+            print(f"🎬 Fade pre-pass ACTIVE (std<{fade_det.std_threshold}, "
+                  f"buffer {fade_det.buffer_frames} frames, min {fade_det.min_fade_frames} frames)")
         else:
-            print(f"⚪ Fade-Erkennung DEAKTIVIERT (Checkbox in Optionen nicht gesetzt)")
+            print(f"⚪ Fade detection DISABLED (checkbox in Options not set)")
 
         _t_pre = time.perf_counter()
         n_expected = max(0, actual_end - actual_start)
 
         # ── PRE-ROLL ────────────────────────────────────────────────────
-        # Ohne Vorlauf startet der Detektor bei jedem Segment "kalt": die
-        # ersten MIN_HISTORY (20) Frames laufen noch mit dem User-Fallback-
-        # Threshold, weil der adaptive/Low-Motion-Zweig erst ab genügend
-        # Historie greift. In ruhigem Material (Scores ~0.002 gegen Fallback
-        # 0.005) werden diese 20 Frames dadurch pauschal als Duplikat
-        # gewertet. Das gleitende 1s-Fenster schleppt den Fehler weitere
-        # 60 Frames mit — gemessen im 4K-Lauf vom 30.07.:
-        #   Index 30 → 22 fps (Rechnung: (10/30)*60 = 20)
-        #   Index 60 → 41 fps (Rechnung: (40/60)*60 = 40)
-        #   Index 90 → 60 fps (falsche Duplikate aus dem Fenster raus)
-        # Der Warmup-Ausschluss der Statistik verdeckt das nur in MIN/MAX/AVG;
-        # im gerenderten Graphen blieb der Anstieg sichtbar.
+        # Without a run-up the detector starts "cold" on every segment: the
+        # first MIN_HISTORY (20) frames still run with the user fallback
+        # threshold, because the adaptive / low-motion branch only kicks in
+        # once there is enough history. In calm footage (scores ~0.002 against
+        # a fallback of 0.005) those 20 frames are therefore all counted as
+        # duplicates. The rolling 1s window then carries the error another
+        # 60 frames - measured in the 4K run of 30 July:
+        #   index 30 -> 22 fps (computed: (10/30)*60 = 20)
+        #   index 60 -> 41 fps (computed: (40/60)*60 = 40)
+        #   index 90 -> 60 fps (the wrong duplicates have left the window)
+        # The statistics warmup exclusion only hides this in MIN/MAX/AVG; in
+        # the rendered graph the ramp stayed visible.
         #
-        # Lösung: Frames VOR dem Segmentstart mitdekodieren, damit Detektor-
-        # Historie und Fenster bei Segment-Index 0 bereits gefüllt sind.
-        # Größe = Fensterlänge (source_fps) + MIN_HISTORY, damit das Fenster
-        # bei Index 0 ausschließlich Frames enthält, die der Detektor schon
-        # mit warmer Historie klassifiziert hat.
+        # Solution: decode frames BEFORE the segment start as well, so the
+        # detector history and the window are already full at segment index 0.
+        # Size = window length (source_fps) + MIN_HISTORY, so that at index 0
+        # the window holds nothing but frames the detector already classified
+        # with a warm history.
         _preroll_want = int(source_fps) + 20
         preroll = max(0, min(_preroll_want, int(actual_start)))
         if preroll < _preroll_want:
-            # Segment beginnt am (oder nahe am) Videoanfang — es gibt schlicht
-            # keine Frames davor. Dann bleibt der Warmup-Effekt bestehen; die
-            # Statistik fängt ihn weiterhin über stats_warmup_seconds ab.
-            print(f"⚠️ Pre-Roll nur {preroll} statt {_preroll_want} Frames möglich "
-                  f"(Segment startet bei Frame {actual_start}) — "
-                  f"Einschwingen am Segmentanfang bleibt teilweise sichtbar")
+            # The segment starts at (or close to) the start of the video -
+            # there simply are no frames before it. The warmup effect then
+            # remains; the statistics still absorb it via stats_warmup_seconds.
+            print(f"⚠️ Pre-roll only {preroll} instead of {_preroll_want} frames possible "
+                  f"(the segment starts at frame {actual_start}) - "
+                  f"some settling at the segment start stays visible")
         elif preroll:
-            print(f"🔥 Pre-Roll: {preroll} Frames vor Segmentstart zum Warmlaufen "
-                  f"(Detektor-Historie + 1s-Fenster), werden verworfen")
+            print(f"🔥 Pre-roll: {preroll} frames before the segment start, to warm up "
+                  f"(detector history + 1s window); they are discarded")
 
         idx = actual_start
         _fade_frame_count = 0
         _min_std_seen = 999.0
-        _seen = 0          # Zähler über ALLE gelieferten Frames inkl. Pre-Roll
+        _seen = 0          # counts ALL delivered frames including the pre-roll
         for gray in self._iter_prepass_gray(cap, actual_start, actual_end,
                                             source_fps, preroll=preroll):
             if self.is_cancelled:
@@ -1617,10 +1615,10 @@ class AnalysisWorker(QThread):
             detection_window.append(not is_dup)
 
             if _in_preroll:
-                # Detektor + Fenster sind jetzt gefüttert — dieser Frame
-                # gehört aber nicht zum Segment und darf in KEINEM Ergebnis
-                # auftauchen (weder Sequenzen noch Duplikat-Statistik noch
-                # Fade-Erkennung, deren Indizes sonst verschoben wären).
+                # The detector and the window are fed now - but this frame
+                # does not belong to the segment and must not appear in ANY
+                # result (neither the sequences nor the duplicate statistics
+                # nor the fade detection, whose indices would otherwise shift).
                 if _seen == preroll:
                     self.total_processed = 0
                     self.duplicate_count = 0
@@ -1652,34 +1650,34 @@ class AnalysisWorker(QThread):
             idx += 1
             if idx % 300 == 0:
                 pct = int((idx - actual_start) / max(1, actual_end - actual_start) * 12)
-                self.progress_update.emit(2 + pct, f"Voranalyse {idx-actual_start}/{actual_end-actual_start}")
+                self.progress_update.emit(2 + pct, f"Pre-analysis {idx-actual_start}/{actual_end-actual_start}")
 
-        # Decoder-Zählabgleich: liefert ffmpeg minimal weniger Frames als
-        # erwartet, mit letztem Wert auffüllen (hält Playhead-Alignment zum
-        # cv2-basierten Render-Pass).
+        # Decoder frame-count reconciliation: when ffmpeg delivers marginally
+        # fewer frames than expected, pad with the last value (keeps the
+        # playhead aligned with the cv2-based render pass).
         _got = len(fps_seq)
         if not self.is_cancelled and 0 < _got < n_expected:
             _pad = n_expected - _got
             if _pad > 5:
-                print(f"⚠️ Vorpass: Decoder lieferte {_got}/{n_expected} Frames — fülle {_pad} auf")
+                print(f"⚠️ Pre-pass: the decoder delivered {_got}/{n_expected} frames - padding {_pad}")
             fps_seq.extend([fps_seq[-1]] * _pad)
             ft_seq.extend([ft_seq[-1]] * _pad)
             dup_flags.extend([False] * _pad)
         _dt_pre = time.perf_counter() - _t_pre
         if _got:
-            print(f"⏱️ Vorpass: {_got} Frames in {_dt_pre:.1f}s "
+            print(f"⏱️ Pre-pass: {_got} frames in {_dt_pre:.1f}s "
                   f"({_got/max(_dt_pre, 1e-6):.0f} FPS, Decoder: {getattr(self, '_prepass_decoder', '?')})")
 
         if fade_det is not None:
-            print(f"🔍 FADE-DIAG: {_fade_frame_count} uniforme Frames erkannt, "
-                  f"niedrigster std={_min_std_seen:.2f} (Threshold={fade_det.std_threshold})")
+            print(f"🔍 FADE DIAG: {_fade_frame_count} uniform frames detected, "
+                  f"lowest std={_min_std_seen:.2f} (threshold={fade_det.std_threshold})")
 
         fade_excluded = fade_det.finalize_excluded() if fade_det is not None else set()
         if fade_det is not None:
-            print(f"🎬 Fade-Vorpass: {len(fade_det.fade_blocks())} Fade(s), "
-                  f"{len(fade_excluded)} Frames ausgeschlossen")
+            print(f"🎬 Fade pre-pass: {len(fade_det.fade_blocks())} fade(s), "
+                  f"{len(fade_excluded)} frames excluded")
 
-        # Detektor für den Render-Pass zurücksetzen
+        # Reset the detector for the render pass
         self._tile_detector = None
         self.total_processed = 0
         self.duplicate_count = 0
@@ -1739,19 +1737,20 @@ class AnalysisWorker(QThread):
             else:
                 target_width, target_height = self.settings.get('resolution', (1920, 1080))
 
-            # Comparison-Layout einmalig vorab bauen (thread-safe, vor dem
-            # ggf. parallelen Render-Loop). Graph 1750x400 @ 4K, FPS-Zahl höher
-            # und kleiner. Nutzt den vollen CodeRenderer → Farben/Milchglas/Style.
+            # Build the comparison layout once up front (thread-safe, before
+            # the possibly parallel render loop). Graph 1750x400 @ 4K, FPS
+            # number higher up and smaller. Uses the full CodeRenderer ->
+            # colours / frosted glass / style.
             if self.settings.get('comparison_mode', False):
                 fw, fh = target_width, target_height
-                # Auf die HÖHE normieren (4K = 2160p), damit 1750x400 bei 4K
-                # wörtlich gilt — die Comparison-Frames sind nur halb so breit,
-                # aber gleich hoch wie das Originalmaterial.
+                # Normalise to the HEIGHT (4K = 2160p) so that 1750x400 holds
+                # literally at 4K - the comparison frames are only half as
+                # wide but just as tall as the original footage.
                 s = fh / 2160.0
-                gw = min(int(1750 * s), fw - int(120 * s))   # nicht breiter als Frame
+                gw = min(int(1750 * s), fw - int(120 * s))   # no wider than the frame
                 gh = int(400 * s)
                 gx = int(60 * s);   gy = fh - gh - int(80 * s)
-                # FPS-Zahl oben links, je 50px (4K-skaliert) vom Rand
+                # FPS number top left, 50px (4K scaled) from each edge
                 fps_x = int(50 * s)
                 fps_y = int(50 * s)
                 self.settings['layout_config'] = {
@@ -1766,7 +1765,7 @@ class AnalysisWorker(QThread):
                     'fps_statistics': {'x': gx, 'y': gy, 'visible': False},
                     'frametime_statistics': {'x': gx, 'y': gy, 'visible': False},
                 }
-                # Titel ("FRAME RATE") + Achsenlabels im Comparison etwas größer
+                # Title ("FRAME RATE") + axis labels slightly larger in comparison mode
                 _os = dict(self.settings.get('overlay_style') or {})
                 _os['text_boost'] = 1.25
                 self.settings['overlay_style'] = _os
@@ -1779,17 +1778,17 @@ class AnalysisWorker(QThread):
             self.final_output = self.output_file
             self.target_bitrate_final = self.settings.get('bitrate', 60)
 
-            # ── Direct-Pipe-Encode (NVENC/x264) statt MJPEG-Zwischendatei ──
-            # Spart Zwischenencode + Re-Encode-Pass. ProRes bleibt Legacy.
+            # ── Direct pipe encode (NVENC/x264) instead of an intermediate MJPEG file ──
+            # Saves the intermediate encode + the re-encode pass. ProRes stays legacy.
             self._pipe_direct = False
             out = None
             if self.target_bitrate_final != 'prores':
                 _mode = 'cq' if self.target_bitrate_final == 'opencv' else int(self.target_bitrate_final)
-                # Codec + Preset aus Settings (Default: HEVC, p6 = hohe Qualität)
+                # Codec + preset from the settings (default: HEVC, p6 = high quality)
                 _codec_family = self.settings.get('codec_family', 'h265')
                 _preset = self.settings.get('nvenc_preset', 'p6')
                 _nv = _probe_nvenc(_codec_family)
-                # HEVC nicht verfügbar? → auf H.264-NVENC zurückfallen
+                # HEVC not available? -> fall back to H.264 NVENC
                 if not _nv and _codec_family == 'h265':
                     if _probe_nvenc('h264'):
                         _codec_family = 'h264'
@@ -1816,51 +1815,51 @@ class AnalysisWorker(QThread):
             # Seek to start frame
             cap.set(cv2.CAP_PROP_POS_FRAMES, actual_start)
 
-            # ══ PASS 1: FPS/FT-Sequenzen für DF-Playhead-Graph vorberechnen ══
+            # ══ PASS 1: precompute the FPS/FT sequences for the DF playhead graph ══
             self._fade_enabled = bool(self.settings.get('fade_detection', False))
-            # ══ PASS 1: FPS/FT-Sequenzen für DF-Playhead-Graph ══
+            # ══ PASS 1: FPS/FT sequences for the DF playhead graph ══
             self._fade_enabled = bool(self.settings.get('fade_detection', False))
 
             _cached = self.settings.get('load_analysis_data')
             if _cached:
-                # Daten aus Datei laden — KEINE Neuanalyse
+                # Load the data from the file - NO re-analysis
                 with open(_cached, encoding='utf-8') as f:
                     _d = json.load(f)
                 self._full_fps_seq = _d['fps_seq']
                 self._full_ft_seq  = _d['ft_seq']
                 self._fade_excluded = set(_d.get('fade_excluded', []))
                 self._full_dup_flags = _d.get('dup_flags') or [False] * len(self._full_fps_seq)
-                # Frametime-Modus auch auf geladene Daten anwenden — ältere
-                # .fpsdata enthalten noch die geglättete Variante.
+                # Apply the frame time mode to loaded data as well - older
+                # .fpsdata still hold the smoothed variant.
                 if (self.settings.get('frametime_mode', 'per_frame') == 'per_frame'
                         and len(self._full_dup_flags) == len(self._full_ft_seq)):
                     self._full_ft_seq = per_frame_frametimes(self._full_dup_flags,
                                                              source_fps)
-                # Stats NICHT aus der Datei übernehmen, sondern neu rechnen:
-                # ältere .fpsdata-Dateien wurden noch mit den alten,
-                # inkonsistenten Filtern erzeugt (FT enthielt den 1000ms-
-                # Sentinel). Die Sequenzen selbst sind unverändert gültig.
+                # Do NOT take the stats from the file, recompute them: older
+                # .fpsdata files were still produced with the old,
+                # inconsistent filters (FT contained the 1000ms sentinel).
+                # The sequences themselves are unchanged and still valid.
                 self._final_fps_stats, self._final_ft_stats = \
                     self._compute_final_stats(self._full_fps_seq,
                                               self._full_ft_seq, source_fps)
-                print(f"📂 Analyse-Daten geladen: {len(self._full_fps_seq)} Frames "
-                      f"(keine Neuanalyse, Statistik neu berechnet)")
-                self.progress_update.emit(14, "Analyse-Daten geladen")
+                print(f"📂 Analysis data loaded: {len(self._full_fps_seq)} frames "
+                      f"(no re-analysis, statistics recomputed)")
+                self.progress_update.emit(14, "Analysis data loaded")
             else:
                 self._full_fps_seq, self._full_ft_seq, self._fade_excluded = \
                     self._prepass_collect_fps(cap, actual_start, actual_end, source_fps)
-                print(f"✅ Voranalyse fertig: {len(self._full_fps_seq)} Frames gesammelt")
+                print(f"✅ Pre-analysis finished: {len(self._full_fps_seq)} frames collected")
 
-                # ══ PASS 1.5: VERIFIKATION der 0-fps-Sektionen ══
-                # Der Vorpass arbeitet auf 128px NEAREST — in sehr ruhigen
-                # Szenen kann echte Bewegung dort unter den Threshold fallen
-                # und fälschlich 0 fps liefern. Dieser Pass prüft nur die
-                # verdächtigen Abschnitte (fps≈0, ≥1s) in höherer Auflösung
-                # nach. Siehe verification_pass.py.
+                # ══ PASS 1.5: VERIFICATION of the 0 fps sections ══
+                # The pre-pass works on 128px NEAREST - in very calm scenes
+                # real motion can fall below the threshold there and yield a
+                # false 0 fps. This pass re-checks only the suspicious
+                # stretches (fps~0, >=1s) at a higher resolution.
+                # See verification_pass.py.
                 if self.settings.get('verification_pass', True):
                     try:
                         from verification_pass import run_verification_pass
-                        self.progress_update.emit(14, "Verifikation der 0-fps-Abschnitte")
+                        self.progress_update.emit(14, "Verifying the 0 fps stretches")
                         (self._full_fps_seq, self._full_ft_seq,
                          self._full_dup_flags, self._verify_report) = run_verification_pass(
                             input_file=self.input_file,
@@ -1879,16 +1878,16 @@ class AnalysisWorker(QThread):
                             is_cancelled=lambda: self.is_cancelled,
                         )
                     except Exception as e:
-                        print(f"⚠️ Verifikations-Pass fehlgeschlagen, "
-                              f"Vorpass-Werte bleiben unverändert: {e}")
+                        print(f"⚠️ Verification pass failed, "
+                              f"pre-pass values stay unchanged: {e}")
                 else:
-                    print("⚪ Verifikations-Pass DEAKTIVIERT (Einstellung)")
+                    print("⚪ Verification pass DISABLED (setting)")
 
-                # ── Frametime-Modus ────────────────────────────────────
-                # Hier, weil die dup_flags erst nach dem Verifikations-Pass
-                # endgültig sind. 'per_frame' zeigt die echte Standzeit
-                # jedes Frames (Digital-Foundry-Stil), 'smoothed' den alten
-                # Kehrwert der gleitenden FPS.
+                # ── Frame time mode ───────────────────────────────────
+                # Here, because the dup_flags are only final after the
+                # verification pass. 'per_frame' shows the real hold time of
+                # every frame (Digital Foundry style), 'smoothed' the old
+                # reciprocal of the rolling FPS.
                 if self.settings.get('frametime_mode', 'per_frame') == 'per_frame':
                     _flags = getattr(self, '_full_dup_flags', None)
                     if _flags and len(_flags) == len(self._full_ft_seq):
@@ -1899,23 +1898,23 @@ class AnalysisWorker(QThread):
                               f"{' …' if len(_uniq) > 6 else ''})")
                         _sc = self.settings.get('frametime_scale') or {}
                         if float(_sc.get('min', 0)) > 0.1:
-                            print(f"   ⚠️ Skala beginnt bei {_sc.get('min')}ms — "
-                                  f"die 60fps-Stufe ({1000/source_fps:.1f}ms) liegt "
-                                  f"damit genau auf der oberen Kante. Für den "
-                                  f"DF-Look 'frametime_scale' auf min 0 setzen, "
-                                  f"z.B. 0 / {2000/source_fps:.1f} / {4000/source_fps:.1f}.")
+                            print(f"   ⚠️ The scale starts at {_sc.get('min')}ms - "
+                                  f"so the 60fps step ({1000/source_fps:.1f}ms) sits "
+                                  f"exactly on the top edge. For the DF look, set "
+                                  f"'frametime_scale' to a min of 0, "
+                                  f"e.g. 0 / {2000/source_fps:.1f} / {4000/source_fps:.1f}.")
                     else:
-                        print("⚠️ Frametime-Modus 'per_frame' übersprungen "
-                              "(keine passenden Duplikat-Flags)")
+                        print("⚠️ Frame time mode 'per_frame' skipped "
+                              "(no matching duplicate flags)")
 
-                # Fade-ausgeschlossene Frames als None markieren → Lücke im Graph
+                # Mark fade-excluded frames as None -> a gap in the graph
                 for _i in self._fade_excluded:
                     if 0 <= _i < len(self._full_fps_seq):
                         self._full_fps_seq[_i] = None
                         self._full_ft_seq[_i] = None
 
-                # ── Abweichungs-Marker ─────────────────────────────────
-                # Erst hier, weil die Frametimes vorher nicht endgültig sind.
+                # ── Deviation marker ───────────────────────────────────
+                # Only here, because the frame times are not final before this.
                 self._full_dev_flags = None
                 if self.settings.get('deviation_marker', False):
                     _base = self.settings.get('baseline_fps', 0)
@@ -1925,22 +1924,22 @@ class AnalysisWorker(QThread):
                         tolerance=float(self.settings.get('deviation_tolerance', 0.15)))
                     _n = sum(1 for x in self._full_dev_flags if x)
                     _eff = _base if _base and _base > 0 else source_fps
-                    print(f"🟥 Abweichungs-Marker: {_n} von {len(self._full_dev_flags)} "
-                          f"Frames markiert ({100*_n/max(1,len(self._full_dev_flags)):.1f}%), "
-                          f"Baseline {_eff:g} fps → Grenze "
-                          f"{1000.0/_eff*1.15:.1f} ms Standzeit")
+                    print(f"🟥 Deviation marker: {_n} of {len(self._full_dev_flags)} "
+                          f"frames marked ({100*_n/max(1,len(self._full_dev_flags)):.1f}%), "
+                          f"baseline {_eff:g} fps -> limit "
+                          f"{1000.0/_eff*1.15:.1f} ms hold time")
 
-                # Finale Statistik aus vollständigen Sequenzen — FPS und
-                # Frametime über exakt dasselbe Frame-Set (siehe
-                # _stats_valid_mask), Warmup über 'stats_warmup_seconds'.
+                # Final statistics from the complete sequences - FPS and
+                # frame time over exactly the same frame set (see
+                # _stats_valid_mask), warmup via 'stats_warmup_seconds'.
                 self._final_fps_stats, self._final_ft_stats = \
                     self._compute_final_stats(self._full_fps_seq,
                                               self._full_ft_seq, source_fps)
 
-            # Seek zurück für den Render-Pass
+            # Seek back for the render pass
             cap.set(cv2.CAP_PROP_POS_FRAMES, actual_start)
 
-            # ── Analyse-Daten optional speichern (spart Neuanalyse) ──
+            # ── Optionally save the analysis data (saves a re-analysis) ──
             if self.settings.get('save_analysis_data', False):
                 try:
                     data_path = os.path.splitext(self.output_file)[0] + '.fpsdata'
@@ -1959,10 +1958,10 @@ class AnalysisWorker(QThread):
                     }
                     with open(data_path, 'w', encoding='utf-8') as f:
                         json.dump(payload, f)
-                    print(f"💾 Analyse-Daten gespeichert: {data_path}")
-                    self.progress_update.emit(15, "Analyse-Daten gespeichert")
+                    print(f"💾 Analysis data saved: {data_path}")
+                    self.progress_update.emit(15, "Analysis data saved")
                 except Exception as e:
-                    print(f"⚠️ Analyse-Daten speichern fehlgeschlagen: {e}")
+                    print(f"⚠️ Saving the analysis data failed: {e}")
             
             # Initialize analysis variables
             fps_history = collections.deque(maxlen=1000)
@@ -1995,27 +1994,26 @@ class AnalysisWorker(QThread):
             # Start async frame reader — prefetches next frames while we process current one
             # Render-Pass-Decoder.
             #
-            # STANDARD IST DER cv2-PFAD — der NVDEC-Versuch war messbar
-            # schlechter, zweimal hintereinander:
+            # THE cv2 PATH IS THE DEFAULT - the NVDEC attempt measured
+            # worse, twice in a row:
             #     cv2.VideoCapture                        53.7 fps
             #     ffmpeg NVDEC, bgr24                     29.1 fps
             #     ffmpeg NVDEC, bgr24, 16 Filter-Threads  24.4 fps
             #
-            # Der Decode selbst ist nicht das Problem — NVDEC schafft im
-            # Vorpass 433-480 fps. Teuer ist alles danach: swscale muss
-            # NV12→BGR24 auf der CPU konvertieren, und das Ergebnis muss als
-            # 23.7 MB pro Frame durch eine Prozess-Pipe. cv2.VideoCapture
-            # nutzt dieselben ffmpeg-Bibliotheken IN-PROCESS, spart also die
-            # Pipe-Kopie komplett und hat einen eigenen optimierten
-            # Konvertierungspfad.
+            # The decode itself is not the problem - NVDEC manages 433-480 fps
+            # in the pre-pass. What is expensive is everything after it:
+            # swscale has to convert NV12->BGR24 on the CPU, and the result
+            # has to go through a process pipe at 23.7 MB per frame.
+            # cv2.VideoCapture uses the same ffmpeg libraries IN-PROCESS, so
+            # it avoids the pipe copy entirely and has an optimised
+            # conversion path of its own.
             #
-            # Daraus die allgemeine Lehre für dieses Tool: eine ffmpeg-Pipe
-            # lohnt sich, wenn die Ausgabe klein ist (Vorpass: 16 KB/Frame
-            # auf 128px → 433 fps), und verliert, wenn volle Frames
-            # transportiert werden müssen.
+            # The general lesson for this tool: an ffmpeg pipe pays off when
+            # the output is small (pre-pass: 16 KB/frame at 128px -> 433 fps)
+            # and loses when full frames have to be transported.
             #
-            # Der NVDEC-Pfad bleibt über 'render_nvdec': True erreichbar,
-            # falls sich das auf anderer Hardware anders verhält.
+            # The NVDEC path stays reachable via 'render_nvdec': True, in
+            # case this behaves differently on other hardware.
             frame_reader = None
             if self.settings.get('render_nvdec', False):
                 try:
@@ -2028,8 +2026,8 @@ class AnalysisWorker(QThread):
                         decode_format=self.settings.get('render_decode_format',
                                                         'bgr24'))
                 except Exception as e:
-                    print(f"⚠️ NVDEC-Render-Decoder nicht verfügbar, "
-                          f"nutze cv2-Fallback: {e}")
+                    print(f"⚠️ NVDEC render decoder not available, "
+                          f"using the cv2 fallback: {e}")
                     frame_reader = None
             if frame_reader is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, actual_start)
@@ -2043,7 +2041,7 @@ class AnalysisWorker(QThread):
             global_fps_values = collections.deque(maxlen=300)
             global_frame_times = collections.deque(maxlen=300)
 
-            # ── Fade-Handling läuft im Vorpass (self._fade_excluded) ───────
+            # ── Fade handling runs in the pre-pass (self._fade_excluded) ───
             displayed_fps = initial_fps
             fps_update_counter = 0
             _ui = self.settings.get('fps_update_interval')
@@ -2061,7 +2059,7 @@ class AnalysisWorker(QThread):
             use_parallel = (self.settings.get('parallel_render', True)
                             and int(self.settings.get('render_workers', 6)) >= 2)
             if use_parallel:
-                self.encoding_done = True   # sequentieller Encoder-Thread wird nicht gebraucht
+                self.encoding_done = True   # the sequential encoder thread is not needed
                 rendered = self._run_render_parallel(
                     frame_reader, out, actual_start, actual_end, source_fps,
                     target_width, target_height, fps_update_interval, segment_frames)
@@ -2089,9 +2087,9 @@ class AnalysisWorker(QThread):
                     frame_processed = resize_with_aspect_ratio(frame, target_width, target_height)
                 timing_stats['resize'] += time.perf_counter() - t0
 
-                # ── Werte aus dem VORPASS — keine erneute Analyse hier ──
-                # (spart gray-Konvertierung + Duplikat-Erkennung, ~7ms/Frame,
-                #  und beseitigt die doppelten 🔬/🔍-Logs)
+                # ── Values from the PRE-PASS - no second analysis here ──
+                #  (saves the greyscale conversion + duplicate detection,
+                #   ~7ms/frame, and removes the duplicated 🔬/🔍 logs)
                 _ri = frame_count
                 is_duplicate = (self._full_dup_flags[_ri]
                                 if _ri < len(self._full_dup_flags) else False)
@@ -2105,11 +2103,11 @@ class AnalysisWorker(QThread):
                     effective_fps = _sv
                     self._last_effective_fps = _sv
                 else:
-                    # Fade-Lücke: letzten Wert für die Anzeige halten
+                    # Fade gap: hold the last value for the display
                     effective_fps = getattr(self, '_last_effective_fps', source_fps)
                 current_frame_time = 1000.0 / effective_fps if effective_fps > 0 else 1000.0
                 
-                # Debug-Output alle 100 Frames
+                # Debug output every 100 frames
                 debug_counter += 1
                 if debug_counter % 100 == 0:
                     window_unique = sum(self.detection_window) if self.detection_window else 0
@@ -2123,7 +2121,7 @@ class AnalysisWorker(QThread):
                     print(f"  Window Stats: {window_unique}/{window_size} unique ({unique_ratio:.1f}%)")
                     print(f"  Total Duplicates: {duplicate_ratio:.1f}%, Sensitivity: {self.diff_threshold}")
                     
-                    # Zeige MIN/MAX/AVG wenn verfügbar
+                    # Show MIN/MAX/AVG when available
                     if global_fps_values and global_frame_times:
                         fps_min = min(global_fps_values)
                         fps_max = max(global_fps_values)
@@ -2134,7 +2132,7 @@ class AnalysisWorker(QThread):
                         print(f"  GLOBAL FPS: Min={fps_min:.2f}, Max={fps_max:.2f}, Avg={fps_avg:.2f}")
                         print(f"  GLOBAL FT:  Min={ft_min:.2f}ms, Max={ft_max:.2f}ms, Avg={ft_avg:.2f}ms")
                 
-                # Stabilize FPS für UI Display
+                # Stabilise FPS for the UI display
                 stabilized_fps = self.stabilize_fps(effective_fps, source_fps)
                 
                 # Store values for FPS graph (always, so the line draws from frame 1)
@@ -2156,9 +2154,9 @@ class AnalysisWorker(QThread):
                     and current_frame_time < 2000.0           # frame time < 2 seconds
                     and current_frame_time > 0.5              # frame time > 0.5 ms
                 )
-                # Stats kommen jetzt aus dem Vorpass (self._final_*_stats),
-                # daher hier keine inkrementelle Akkumulation mehr nötig.
-                # global_fps_values/global_frame_times weiterhin für Debug-Ausgabe:
+                # The stats now come from the pre-pass (self._final_*_stats),
+                # so no incremental accumulation is needed here any more.
+                # global_fps_values/global_frame_times are still used for debug output:
                 if stats_ready:
                     global_fps_values.append(effective_fps)
                     global_frame_times.append(current_frame_time)
@@ -2195,9 +2193,9 @@ class AnalysisWorker(QThread):
                 # Playhead-Index = Position im vorberechneten Sequenz-Array
                 _render_idx = frame_count
 
-                # On-the-fly-Statistik INKREMENTELL: pro Frame wird nur der
-                # neue Wert eingerechnet (kein O(n²)-Slice über das ganze Video).
-                # Warmup (~1s instabile Framerate) und Fade-Werte (None) raus.
+                # On-the-fly statistics INCREMENTALLY: only the new value is
+                # folded in per frame (no O(n^2) slice across the whole video).
+                # Warmup (~1s of unstable frame rate) and fade values (None) are excluded.
                 if not hasattr(self, '_run_fps_acc'):
                     self._run_fps_acc = {'sum': 0.0, 'n': 0, 'min': None, 'max': None}
                     self._run_ft_acc  = {'sum': 0.0, 'n': 0, 'min': None, 'max': None}
@@ -2298,13 +2296,13 @@ class AnalysisWorker(QThread):
             
             # Convert to final format
             if getattr(self, '_pipe_direct', False):
-                print("🚀 Direct-Pipe: finale Datei fertig — kein Re-Encode nötig")
+                print("🚀 Direct pipe: the final file is ready - no re-encode needed")
                 self.progress_update.emit(97, "Direct encode complete!")
             elif os.path.exists(self.temp_output):
                 self.progress_update.emit(90, "Converting to final format...")
                 
                 if self.target_bitrate_final == 'opencv':
-                    # NVENC (RTX GPU) zuerst, libx264 als Fallback
+                    # NVENC (RTX GPU) first, libx264 as the fallback
                     cmd_nvenc = [
                         'ffmpeg', '-i', self.temp_output, '-y',
                         '-c:v', 'h264_nvenc', '-preset', 'p4',
@@ -2318,7 +2316,7 @@ class AnalysisWorker(QThread):
                     try:
                         r = subprocess.run(cmd_nvenc, capture_output=True)
                         if r.returncode != 0:
-                            print("⚠️ NVENC nicht verfügbar, fallback auf libx264")
+                            print("⚠️ NVENC not available, falling back to libx264")
                             subprocess.run(cmd_x264, capture_output=True, check=True)
                         else:
                             print("🚀 NVENC encode (GPU)")
@@ -2363,7 +2361,7 @@ class AnalysisWorker(QThread):
                     try:
                         r = subprocess.run(cmd_nvenc, capture_output=True)
                         if r.returncode != 0:
-                            print("⚠️ NVENC nicht verfügbar, fallback auf libx264")
+                            print("⚠️ NVENC not available, falling back to libx264")
                             subprocess.run(cmd_x264, capture_output=True, check=True)
                         else:
                             print("🚀 NVENC encode (GPU)")
@@ -2376,7 +2374,7 @@ class AnalysisWorker(QThread):
             if not self.is_cancelled:
                 self.progress_update.emit(100, "Analysis completed!")
                 
-                # Final message mit korrekten Statistiken
+                # Final message with the correct statistics
                 if self.total_processed > 0:
                     final_message = (f"FPS Analysis completed!\n\n"
                                    f"Detection Results:\n"

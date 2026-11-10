@@ -65,9 +65,9 @@ class LayoutCanvas(QWidget):
         self._handle_size = 10           # resize handle size in widget px
 
         # ── Live-Preview (echtes Overlay-Rendering) ──
-        self._preview_analyzer = None    # Referenz auf den Analyzer (für Renderer + Frame)
-        self._preview_bg = None          # np.ndarray: Video-Frame (BGR) als Preview-Hintergrund
-        self._preview_pixmap = None      # gerendertes Overlay als QPixmap
+        self._preview_analyzer = None    # reference to the analyzer (renderer + frame)
+        self._preview_bg = None          # np.ndarray: video frame (BGR) as preview background
+        self._preview_pixmap = None      # rendered overlay as a QPixmap
         self._preview_enabled = False
         self._preview_dirty = True
         self._preview_timer = QTimer(self)
@@ -76,7 +76,7 @@ class LayoutCanvas(QWidget):
         self._preview_timer.timeout.connect(self._do_render_preview)
 
     def enable_preview(self, analyzer):
-        """Aktiviert die Live-Preview mit echtem Overlay-Rendering."""
+        """Enable the live preview with real overlay rendering."""
         self._preview_analyzer = analyzer
         self._preview_bg = self._grab_video_frame(analyzer)
         self._preview_enabled = self._preview_bg is not None
@@ -84,7 +84,7 @@ class LayoutCanvas(QWidget):
         self._schedule_preview()
 
     def _grab_video_frame(self, analyzer):
-        """Holt einen echten Frame aus dem geladenen Video (BGR np.ndarray)."""
+        """Fetch a real frame from the loaded video (BGR np.ndarray)."""
         try:
             import cv2
             cap = getattr(analyzer, 'video_cap', None)
@@ -92,7 +92,7 @@ class LayoutCanvas(QWidget):
                 return None
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            # Frame aus der Mitte (repräsentativer als der erste)
+            # A frame from the middle (more representative than the first)
             cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total // 2))
             ret, frame = cap.read()
             cap.set(cv2.CAP_PROP_POS_FRAMES, pos)   # Position wiederherstellen
@@ -102,13 +102,13 @@ class LayoutCanvas(QWidget):
             return None
 
     def _schedule_preview(self):
-        """Preview-Render throttlen (bei schnellem Ziehen nicht überlasten)."""
+        """Throttle the preview render (so fast dragging does not overload it)."""
         self._preview_dirty = True
         if self._preview_enabled and not self._preview_timer.isActive():
             self._preview_timer.start()
 
     def _do_render_preview(self):
-        """Rendert das echte Overlay mit dem aktuellen Layout (gedrosselt aufgerufen)."""
+        """Render the real overlay with the current layout (called throttled)."""
         if not self._preview_enabled or self._preview_bg is None:
             return
         if not self._preview_dirty:
@@ -126,7 +126,7 @@ class LayoutCanvas(QWidget):
             frame = self._preview_bg.copy()
             fh, fw = frame.shape[:2]
 
-            # Layout in Overlay-Positionen umrechnen (1080p → Framegröße)
+            # Convert the layout into overlay positions (1080p -> frame size)
             layout_cfg = analyzer.layout_manager.convert_to_overlay_positions(
                 self._layout, fw, fh) if hasattr(analyzer, 'layout_manager') else None
 
@@ -148,7 +148,7 @@ class LayoutCanvas(QWidget):
                 'frametime_color': getattr(analyzer, 'frametime_color', '#00FF00'),
             }
 
-            # Statische Beispielkurve (schöne Dip-Form)
+            # Static example curve (a nice dip shape)
             sample_fps = self._sample_curve()
             sample_ft  = [1000.0 / max(1, v) for v in sample_fps]
             stats = {'fps': {'avg': 58.2, 'min': 44.0, 'max': 60.0},
@@ -172,12 +172,12 @@ class LayoutCanvas(QWidget):
             self._preview_enabled = False
 
     def _sample_curve(self):
-        """Statische Beispiel-FPS-Kurve mit einem Dip (repräsentativ)."""
+        """Static example FPS curve with a single dip (representative)."""
         import math
         pts = []
         for i in range(180):
             if 60 <= i < 120:
-                # Dip in der Mitte
+                # Dip in the middle
                 d = 1.0 - 0.45 * math.sin((i - 60) / 60 * math.pi)
                 pts.append(60.0 * d)
             else:
@@ -249,7 +249,7 @@ class LayoutCanvas(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Canvas background: echte Overlay-Preview oder Fallback-Farbe
+        # Canvas background: real overlay preview, or a fallback colour
         canvas_rect = QRect(
             self._offset,
             QSize(int(CANVAS_W * self._scale), int(CANVAS_H * self._scale))
@@ -259,7 +259,7 @@ class LayoutCanvas(QWidget):
         else:
             p.fillRect(canvas_rect, QColor(20, 35, 50))
 
-        # Grid lines (nur ohne Preview, sonst stören sie das echte Bild)
+        # Grid lines (only without a preview, otherwise they clutter the image)
         if not (self._preview_enabled and self._preview_pixmap is not None):
             p.setPen(QPen(QColor(255, 255, 255, 20), 1, Qt.PenStyle.DashLine))
             for i in range(1, 4):
@@ -289,7 +289,7 @@ class LayoutCanvas(QWidget):
             is_selected = elem_id == self._selected_id
             is_hover = elem_id == self._hover_id
 
-            # Fill — dezenter wenn Preview aktiv (echtes Overlay sichtbar)
+            # Fill - more subtle while the preview is active (real overlay visible)
             fill = QColor(color)
             if self._preview_enabled and self._preview_pixmap is not None:
                 base_a = 40 if not is_selected else 90
@@ -541,7 +541,7 @@ class StylePanel(QGroupBox):
         self._style_combo.currentIndexChanged.connect(self._on_style_change)
         layout.addWidget(self._style_combo)
 
-        # Outline/Shadow thickness — Label wechselt je nach Stil
+        # Outline/shadow thickness - the label changes with the style
         from PyQt6.QtWidgets import QSpinBox
         self._ow_label = QLabel("Outline width (base @1080p):")
         layout.addWidget(self._ow_label)
@@ -574,10 +574,10 @@ class StylePanel(QGroupBox):
         layout.addLayout(opacity_row)
 
         # ── Milchglas-Effekt (Frosted Glass) ──
-        self._frost_check = QCheckBox("Milchglas-Effekt (Video hinter dem Graphen verschwimmt)")
+        self._frost_check = QCheckBox("Frosted glass (the video behind the graph is blurred)")
         self._frost_check.setToolTip(
-            "Zeichnet den Bildbereich hinter dem Graphen weich und abgedunkelt\n"
-            "statt eines einfarbigen Hintergrunds. Ersetzt die Deckkraft oben."
+            "Draws the image area behind the graph blurred and darkened\n"
+            "instead of a solid background. Replaces the opacity above."
         )
         self._frost_check.stateChanged.connect(lambda _: self._emit())
         layout.addWidget(self._frost_check)
@@ -608,7 +608,7 @@ class StylePanel(QGroupBox):
         frost_dark_row.addWidget(self._frost_dark_label)
         layout.addLayout(frost_dark_row)
 
-        # ── Graph Line (aus Options hierher verschoben) ──────────────────
+        # ── Graph line (moved here from Options) ─────────────────────────
         from PyQt6.QtWidgets import QSpinBox
 
         self._fps_color = '#00FF00'
@@ -664,7 +664,7 @@ class StylePanel(QGroupBox):
         layout.addLayout(interval_row)
 
     def _on_style_change(self):
-        # Label des Dicke-Feldes an den Stil anpassen
+        # Adapt the thickness field label to the style
         style = self._style_combo.currentText()
         if style == 'Drop Shadow':
             self._ow_label.setText("Shadow distance (base @1080p):")
@@ -673,7 +673,7 @@ class StylePanel(QGroupBox):
             self._ow_label.setText("Outline width (base @1080p):")
             self._ow_spin.setEnabled(True)
         else:  # None
-            self._ow_label.setText("(kein Rand bei 'None')")
+            self._ow_label.setText("(no border with 'None')")
             self._ow_spin.setEnabled(False)
         self._emit()
 
@@ -763,11 +763,11 @@ class LayoutEditorDialog(QDialog):
         self._build_ui()
         self._load_current_layout()
 
-        # Live-Preview mit echtem Overlay-Rendering aktivieren
+        # Enable the live preview with real overlay rendering
         try:
             self._canvas.enable_preview(self.parent_analyzer)
         except Exception as e:
-            print(f"LayoutEditor: Preview konnte nicht aktiviert werden: {e}")
+            print(f"LayoutEditor: could not enable the preview: {e}")
 
     # ── UI construction ────────────────────────────────────────────────────────
 
@@ -833,7 +833,7 @@ class LayoutEditorDialog(QDialog):
         btn_reset.clicked.connect(self._reset_layout)
         right_layout.addWidget(btn_reset)
 
-        # Save / Load Layout (Datei)
+        # Save / load layout (file)
         io_row = QHBoxLayout()
         btn_save = QPushButton("💾 Save Layout")
         btn_save.clicked.connect(self._save_layout_file)
@@ -889,7 +889,7 @@ class LayoutEditorDialog(QDialog):
                 for k, v in lm.get_default_layout().items()
             }
 
-        # Style laden: Analyzer-Attribute (live) vor gespeicherten Settings
+        # Load the style: analyzer attributes (live) take priority over saved settings
         try:
             a = self.parent_analyzer
             saved = {}
@@ -932,7 +932,7 @@ class LayoutEditorDialog(QDialog):
 
     def _on_style_changed(self, style: dict):
         """Style panel changed — Preview live aktualisieren."""
-        # Style temporär auf den Renderer pushen, damit die Preview ihn zeigt
+        # Push the style onto the renderer temporarily so the preview shows it
         try:
             a = self.parent_analyzer
             a.overlay_style = {
@@ -949,12 +949,12 @@ class LayoutEditorDialog(QDialog):
                 a.framerate_color = style['fps_color']
             if style.get('ft_color') is not None:
                 a.frametime_color = style['ft_color']
-            # color_settings für die Preview aktualisieren (liest der Renderer)
+            # Update color_settings for the preview (the renderer reads these)
             a.color_settings = {
                 'framerate_color': getattr(a, 'framerate_color', '#00FF00'),
                 'frametime_color': getattr(a, 'frametime_color', '#00FF00'),
             }
-            # Renderer-Cache invalidieren, damit Style greift
+            # Invalidate the renderer cache so the style takes effect
             r = a.get_renderer_instance() if hasattr(a, 'get_renderer_instance') else None
             if r is not None:
                 r._overlay_style = a.overlay_style
@@ -975,7 +975,7 @@ class LayoutEditorDialog(QDialog):
         self._props.set_element(elem_id, self._layout)
 
     def _save_layout_file(self):
-        """Layout + Style als JSON-Datei speichern."""
+        """Save layout + style as a JSON file."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json
         path, _ = QFileDialog.getSaveFileName(
@@ -991,10 +991,10 @@ class LayoutEditorDialog(QDialog):
                 json.dump(data, f, indent=2)
             QMessageBox.information(self, "Gespeichert", f"Layout gespeichert:\n{path}")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Speichern fehlgeschlagen:\n{e}")
+            QMessageBox.warning(self, "Error", f"Saving failed:\n{e}")
 
     def _load_layout_file(self):
-        """Layout + Style aus JSON-Datei laden."""
+        """Load layout + style from a JSON file."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json
         path, _ = QFileDialog.getOpenFileName(
@@ -1017,7 +1017,7 @@ class LayoutEditorDialog(QDialog):
                 self._style_panel.set_style(data['style'])
             QMessageBox.information(self, "Geladen", f"Layout geladen:\n{path}")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Laden fehlgeschlagen:\n{e}")
+            QMessageBox.warning(self, "Error", f"Loading failed:\n{e}")
 
     def _reset_layout(self):
         from layout_manager import LayoutManager
@@ -1054,12 +1054,12 @@ class LayoutEditorDialog(QDialog):
             # Apply to LayoutManager
             self.parent_analyzer.layout_manager.set_current_layout(save_layout)
 
-            # Save overlay style — als Analyzer-Attribut; Persistenz übernimmt
+            # Save overlay style - as an analyzer attribute; persistence is handled
             # save_current_settings() weiter unten
             style = self._style_panel.get_style()
             self.parent_analyzer.overlay_style = style
 
-            # Graph-Line-Einstellungen auf den Analyzer schreiben
+            # Write the graph line settings onto the analyzer
             a = self.parent_analyzer
             try:
                 a.framerate_color = style['fps_color']

@@ -85,8 +85,8 @@ class FontSizeConfig:
             'fps_number': 120,
             'fps_label': 40,
             'stats_text': 48,
-            'stats_spacing': 200,    # Diese Werte werden NICHT mehr verwendet!
-            'frametime_spacing': 80, # Diese Werte werden NICHT mehr verwendet!
+            'stats_spacing': 200,    # These values are NOT used any more!
+            'frametime_spacing': 80, # These values are NOT used any more!
             'border_thickness': 2,
         },
         '1440p': {
@@ -296,14 +296,14 @@ class PNGTemplateRenderer:
         # Adjust these values to control line thickness for each resolution tier
         if line_type == 'fps':
             thickness_multipliers = {
-                '4K': 3.0,      # Deine Werte für FPS
+                '4K': 3.0,      # Values for FPS
                 '1440p': 1.2,   
                 '1080p': 1.5,   
                 '720p': 0.8     
             }
         else:  # frametime
             thickness_multipliers = {
-                '4K': 2.0,      # Andere Werte für Frame Time
+                '4K': 2.0,      # Different values for frame time
                 '1440p': 1.1,   
                 '1080p': 1.0,   
                 '720p': 0.6     
@@ -344,7 +344,7 @@ class PNGTemplateRenderer:
         
         # NEU: Skip first 60 frames
         if len(fps_history) < 60:
-            return img # Zeige keine Linie während warm-up
+            return img # Draw no line during warm-up
 
         if len(fps_history) < 2:
             return img
@@ -375,7 +375,7 @@ class PNGTemplateRenderer:
         actual_graph_width = int(graph_area_width * scale_x)
         actual_graph_height = int(graph_area_height * scale_y)
         
-        # WICHTIG: Begrenze die History auf die letzten 180 Frames (3 Sekunden bei 60 FPS)
+        # IMPORTANT: cap the history at the last 180 frames (3 seconds at 60 FPS)
         max_points = 180
         if len(fps_history) > max_points:
             fps_history = fps_history[-max_points:]  # This now works because fps_history is a list
@@ -393,11 +393,11 @@ class PNGTemplateRenderer:
                 smoothed.append(sum(fps_history[lo:hi]) / (hi - lo))
             fps_history = smoothed
 
-        # FIXED: Skaliere die X-Achse so dass immer der volle Graph-Bereich genutzt wird
+        # FIXED: scale the X axis so the full graph area is always used
         points = []
         for i, fps in enumerate(fps_history):
             # X position: spread across FULL graph width
-            # WICHTIG: Teile durch max_points, nicht durch len(fps_history)
+            # IMPORTANT: divide by max_points, not by len(fps_history)
             px = actual_graph_x + int(i * actual_graph_width / max_points)
             
             # Y position: scale FPS value to graph height (inverted - high FPS at top)
@@ -425,7 +425,7 @@ class PNGTemplateRenderer:
         
         # NEU: Skip first 60 frames
         if len(frame_times) <= 60:
-            return img # Zeige keine Linie während warm-up
+            return img # Draw no line during warm-up
 
         if len(frame_times) < 2:
             return img
@@ -493,7 +493,7 @@ class PNGTemplateRenderer:
                     font_settings: Optional[Dict] = None,
                     global_fps_values: Optional[List[float]] = None,
                     global_frame_times: Optional[List[float]] = None,
-                    precomputed_stats: Optional[Dict] = None) -> np.ndarray:  # ← IN den Klammern, VOR ) -> np.ndarray:
+                    precomputed_stats: Optional[Dict] = None) -> np.ndarray:  # <- INSIDE the brackets, BEFORE ) -> np.ndarray:
         """Main rendering function - FIXED POSITION SCALING"""
         import time
         start_time = time.perf_counter()
@@ -625,7 +625,7 @@ class PNGTemplateRenderer:
             if layout_config.get('fps_statistics', {}).get('visible', True):
                 fps_stats_config = layout_config['fps_statistics']
                 
-                # Verwende vorberechnete Statistiken (O(1)!) oder berechne Fallback
+                # Use precomputed statistics (O(1)!) or fall back to computing them
                 if precomputed_stats and 'fps' in precomputed_stats:
                     stats = precomputed_stats['fps']
                 elif global_fps_values and len(global_fps_values) > 60:
@@ -643,7 +643,7 @@ class PNGTemplateRenderer:
             if frame_times and layout_config.get('frametime_statistics', {}).get('visible', True):
                 ft_stats_config = layout_config['frametime_statistics']
                 
-                # Verwende vorberechnete Statistiken (O(1)!) oder berechne Fallback
+                # Use precomputed statistics (O(1)!) or fall back to computing them
                 if precomputed_stats and 'frametime' in precomputed_stats:
                     stats = precomputed_stats['frametime']
                 elif global_frame_times and len(global_frame_times) > 60:
@@ -697,10 +697,10 @@ class PNGTemplateRenderer:
             fps_display_config = self._current_layout_config.get('fps_display', {})
             multiplier = fps_display_config.get('font_scale_multiplier', 1.0)
             if multiplier != 1.0:
-                # WICHTIG: IMMER den Multiplier anwenden, nicht nur beim ersten Mal!
+                # IMPORTANT: ALWAYS apply the multiplier, not just the first time!
                 fps_size = int(fps_size * multiplier)
                 
-                # Debug log nur einmal
+                # Log debug output only once
                 if not hasattr(self, '_multiplier_logged'):
                     print(f"🎯 Font multiplier active: {multiplier}x")
                     self._multiplier_logged = True

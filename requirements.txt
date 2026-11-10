@@ -1,21 +1,21 @@
-# FPS Analyzer — Abhängigkeiten
-# Python 3.10 oder neuer (der Code nutzt X | Y Typannotationen)
+# FPS Analyzer - dependencies
+# Python 3.10 or newer (the code uses X | Y type annotations)
 
-# Oberfläche
+# Interface
 PyQt6>=6.4
 
-# Bild- und Videoverarbeitung
+# Image and video processing
 opencv-python>=4.7
 numpy>=1.23
 Pillow>=9.0
 
-# Systeminfo (Puffergröße des Render-Passes richtet sich nach freiem RAM)
+# System info (the render pass buffer size follows the free RAM)
 psutil>=5.9
 
 # ── Optional ─────────────────────────────────────────────────────────────
-# PyTorch wird NUR für die CUDA-Erkennung und den GPU-Blender gebraucht.
-# Ohne torch läuft alles weiter, nur eben auf der CPU. Da die Installation
-# je nach CUDA-Version unterschiedlich ausfällt, steht sie hier bewusst
-# nicht als feste Zeile — siehe https://pytorch.org/get-started/locally/
+# PyTorch is needed ONLY for CUDA detection and the GPU blender.
+# Without torch everything still runs, just on the CPU. Since the right
+# install depends on your CUDA version, it is deliberately not pinned here
+# as a fixed line - see https://pytorch.org/get-started/locally/
 #
 # torch>=2.0

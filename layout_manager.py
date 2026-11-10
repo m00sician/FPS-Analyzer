@@ -1,5 +1,5 @@
 """
-Layout Manager für FPS Analyzer Integration - UPDATED WITH CORRECT SIZES
+Layout Manager for FPS Analyzer integration - UPDATED WITH CORRECT SIZES
 Handles layout storage, conversion, and integration with existing overlay system
 UPDATED: Proper default sizes based on screenshot analysis + 5 element support
 """

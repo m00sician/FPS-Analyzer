@@ -1,5 +1,5 @@
 """
-Settings Manager für FPS Analyzer
+Settings Manager for FPS Analyzer
 Handles persistent storage and loading of application settings
 """
 import json
@@ -127,7 +127,7 @@ class SettingsManager:
             if self.settings_file.exists():
                 print(f"✅ Settings saved to {self.settings_file} (Size: {self.settings_file.stat().st_size} bytes)")
             else:
-                print(f"❌ FEHLER: Datei wurde nicht erstellt: {self.settings_file}")
+                print(f"❌ ERROR: file was not created: {self.settings_file}")
             
             return True
             

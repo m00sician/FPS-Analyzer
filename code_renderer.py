@@ -1,20 +1,20 @@
 """
-Code Renderer für FPS Analyzer
-Ersetzt den PNG Template Renderer vollständig.
+Code Renderer for FPS Analyzer
+Replaces the PNG template renderer completely.
 
-Keine externen PNG-Dateien mehr — alles wird programmatisch gezeichnet.
-Exakt dasselbe visuelle Ergebnis wie die Templates:
+No external PNG files any more - everything is drawn programmatically, with
+exactly the same visual result as the templates:
   - Schwarzer semi-transparenter Hintergrund (alpha=128/255 = 50%)
   - Horizontale Grid-Linien (hellgrau, alpha=179/255 = 70%)
-  - Titel "FRAME RATE" / "FRAME TIME" (Bebas Neue mit Stroke)
-  - Achsenbeschriftungen rechts (automatisch aus scale berechnet)
-  - Dynamische Linie darüber (cv2.polylines)
+  - title "FRAME RATE" / "FRAME TIME" (Bebas Neue with stroke)
+  - axis labels on the right (computed automatically from the scale)
+  - the dynamic line on top (cv2.polylines)
 
-Vorteile gegenüber PNG Templates:
-  - Keine templates/ Abhängigkeit
-  - Scale-Änderungen wirken sofort ohne neue PNG-Datei
+Advantages over PNG templates:
+  - no templates/ dependency
+  - scale changes take effect at once, without a new PNG file
   - Neue Graphen / Elemente in wenigen Zeilen Code
-  - Automatische Skalierung auf jede Auflösung
+  - automatic scaling to any resolution
 """
 
 import time
@@ -26,10 +26,10 @@ from typing import Dict, List, Optional, Tuple
 
 # ── Optionale Dependencies ─────────────────────────────────────────────────────
 try:
-    # noqa: F401 - Image und ImageFont sehen ungenutzt aus, gehoeren aber zur
-    # Pruefung: nur wenn ALLE drei importierbar sind, ist Pillow wirklich
-    # vollstaendig. Werden sie entfernt, steht PILLOW faelschlich auf True
-    # und der Fehler faellt erst spaeter beim Zeichnen auf.
+    # noqa: F401 - Image and ImageFont look unused, but they belong to the
+    # check: only when ALL THREE can be imported is Pillow really complete.
+    # Remove them and PILLOW is wrongly set to True, so the error only shows
+    # up later, while drawing.
     from PIL import Image, ImageDraw, ImageFont  # noqa: F401
     PILLOW = True
 except ImportError:
@@ -45,7 +45,7 @@ try:
     from color_manager import hex_to_bgr
 except ImportError:
     def hex_to_bgr(hex_color):
-        """'#RRGGBB' → (B, G, R) für OpenCV. Fallback wenn color_manager fehlt."""
+        """'#RRGGBB' -> (B, G, R) for OpenCV. Fallback when color_manager is missing."""
         if isinstance(hex_color, (tuple, list)):
             return tuple(hex_color)
         h = str(hex_color).lstrip('#')
@@ -75,7 +75,7 @@ except ImportError:
             return '720p'
 
 
-# ── Konstanten (aus Template-Analyse) ──────────────────────────────────────────
+# ── Constants (from the template analysis) ────────────────────────────────────
 # Hintergrund: schwarz, 50% Deckkraft
 BG_COLOR   = (0, 0, 0)
 BG_ALPHA   = 128 / 255.0        # 0.502
@@ -84,21 +84,21 @@ BG_ALPHA   = 128 / 255.0        # 0.502
 GRID_COLOR = (145, 145, 145)
 GRID_ALPHA = 179 / 255.0        # 0.702
 
-# Titel + Achsen: weiß, voll opak
+# Title + axes: white, fully opaque
 LABEL_COLOR     = (255, 255, 255)
 LABEL_STROKE    = (0, 0, 0)
 
-# Graph-Struktur (relativ zur Template-Größe, aus Pixel-Analyse extrahiert)
+# Graph structure (relative to the template size, extracted from pixel analysis)
 # FPS Template 1840x580: Graph-Bereich y=73..557 (4 Sections à 121px)
 # Titel-Bereich: 0..73 (transparent), Graph: 73..557, Bottom-Pad: 557..580
-TITLE_H_RATIO  = 73  / 580    # ~12.6% der Höhe für Titel-Bereich
+TITLE_H_RATIO  = 73  / 580    # ~12.6% of the height for the title area
 BOTTOM_RATIO   = 23  / 580    # ~4%  Bottom-Padding
-# → Graph-Bereich: 12.6% .. 96% der Template-Höhe
-# 4 gleichmäßige Grid-Linien inkl. oben und unten
+# -> graph area: 12.6% .. 96% of the template height
+# 4 evenly spaced grid lines including top and bottom
 
 import threading
-# Kein globaler Text-Lock mehr nötig: _FontCache ist thread-lokal, jeder
-# Worker rendert mit eigenen Font-Instanzen → echte Text-Parallelität.
+# No global text lock needed any more: _FontCache is thread-local, so every
+# worker renders with its own font instances -> real text parallelism.
 
 MAX_GRAPH_POINTS = 180
 
@@ -106,45 +106,45 @@ MAX_GRAPH_POINTS = 180
 # ═══════════════════════════════════════════════════════════════════════════════
 # ██  MANUELLE TEXT-JUSTIERUNG  ██
 # ═══════════════════════════════════════════════════════════════════════════════
-# Feinjustierung der Textelemente per Hand. Alle Offset-Werte sind PIXEL bei
-# 4K (2160p Höhe) und werden automatisch auf die Ausgabeauflösung skaliert —
-# ein Wert von 10 verschiebt bei 1080p also um 5px, bei 4K um 10px.
+# Manual fine-tuning of the text elements. All offset values are PIXELS at 4K
+# (2160p height) and are scaled automatically to the output resolution - a
+# value of 10 therefore shifts by 5px at 1080p and by 10px at 4K.
 #
-#   *_DX  : Verschiebung horizontal (+ = nach rechts, - = nach links)
-#   *_DY  : Verschiebung vertikal   (+ = nach unten,  - = nach oben)
-#   *_SIZE: Größen-MULTIPLIKATOR (1.0 = Standard, 1.2 = 20% größer, 0.8 = kleiner)
+#   *_DX  : horizontal shift (+ = right, - = left)
+#   *_DY  : vertical shift   (+ = down,  - = up)
+#   *_SIZE: size MULTIPLIER (1.0 = default, 1.2 = 20% larger, 0.8 = smaller)
 #
-# "TITLE"  = der Text ÜBER dem Graphen ("FRAME RATE" / "FRAME TIME")
-# "LABELS" = die Achsenbeschriftungen RECHTS neben dem Graphen (60/30/0 bzw. ms)
+# "TITLE"  = the text ABOVE the graph ("FRAME RATE" / "FRAME TIME")
+# "LABELS" = the axis labels to the RIGHT of the graph (60/30/0, or ms)
 # ───────────────────────────────────────────────────────────────────────────────
 
 # ── FRAME RATE ──
 FR_TITLE_DX   = 0      # "FRAME RATE" Text links/rechts
 FR_TITLE_DY   = 0      # "FRAME RATE" Text hoch/runter
-FR_TITLE_SIZE = 1.0    # "FRAME RATE" Textgröße (Multiplikator)
+FR_TITLE_SIZE = 1.0    # "FRAME RATE" text size (multiplier)
 FR_LABELS_DX   = 0     # Achsenlabels (60/30/0) links/rechts
 FR_LABELS_DY   = 0     # Achsenlabels hoch/runter
-FR_LABELS_SIZE = 1.0   # Achsenlabels Textgröße (Multiplikator)
-FR_LABELS_GAP  = 5     # Abstand der FR-Labels vom Graphen (4K-px, + = weiter weg)
+FR_LABELS_SIZE = 1.0   # axis label text size (multiplier)
+FR_LABELS_GAP  = 5     # gap between the FR labels and the graph (4K px, + = further away)
 
 # ── FRAME TIME ──
 FT_TITLE_DX   = 0      # "FRAME TIME" Text links/rechts
 FT_TITLE_DY   = 0      # "FRAME TIME" Text hoch/runter
-FT_TITLE_SIZE = 1.0    # "FRAME TIME" Textgröße (Multiplikator)
+FT_TITLE_SIZE = 1.0    # "FRAME TIME" text size (multiplier)
 FT_LABELS_DX   = 0     # ms-Labels links/rechts
 FT_LABELS_DY   = 0     # ms-Labels hoch/runter
-FT_LABELS_SIZE = 1.0   # ms-Labels Textgröße (Multiplikator)
-FT_LABELS_GAP  = 5     # Abstand der FT-Labels vom Graphen (4K-px, + = weiter weg)
+FT_LABELS_SIZE = 1.0   # ms label text size (multiplier)
+FT_LABELS_GAP  = 5     # gap between the FT labels and the graph (4K px, + = further away)
 
 # ── FPS-Zahl oben links ──
 FPS_NUM_DX   = 0       # FPS-Zahl links/rechts
 FPS_NUM_DY   = 0       # FPS-Zahl hoch/runter
-FPS_NUM_SIZE = 1.0     # FPS-Zahl Textgröße (Multiplikator)
+FPS_NUM_SIZE = 1.0     # FPS number text size (multiplier)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 def _tweak_for(title):
-    """Liefert (title_dx, title_dy, title_size, lbl_dx, lbl_dy, lbl_size, lbl_gap) für einen Graph-Titel."""
+    """Returns (title_dx, title_dy, title_size, lbl_dx, lbl_dy, lbl_size, lbl_gap) for a graph title."""
     if title == "FRAME RATE":
         return (FR_TITLE_DX, FR_TITLE_DY, FR_TITLE_SIZE,
                 FR_LABELS_DX, FR_LABELS_DY, FR_LABELS_SIZE, FR_LABELS_GAP)
@@ -176,7 +176,7 @@ def _alpha_composite_hline(img: np.ndarray, y: int, x1: int, x2: int,
 
 
 def _find_font(size: int):
-    """Bebas Neue laden, Fallback auf verfügbare TTF."""
+    """Load Bebas Neue, falling back to any available TTF."""
     if not PILLOW:
         return None
     import glob, platform, os
@@ -204,12 +204,12 @@ def _find_font(size: int):
 
 class _FontCache:
     """
-    Hält geladene Pillow-Fonts THREAD-LOKAL im Cache (Größe als Key).
+    Keeps loaded Pillow fonts THREAD-LOCAL in a cache (size as the key).
 
-    FreeType (hinter Pillow) ist nicht thread-safe wenn sich DASSELBE
-    Font-Objekt über Threads teilt. Durch thread-lokale Instanzen rendert
-    jeder Worker-Thread mit seinem eigenen Font → kein globaler Lock nötig,
-    echte Parallelität beim Text-Rendering.
+    FreeType (behind Pillow) is not thread-safe when the SAME font object is
+    shared across threads. With thread-local instances every worker thread
+    renders with its own font -> no global lock needed, and real parallelism
+    while rendering text.
     """
     _local = threading.local()
 
@@ -226,14 +226,14 @@ class _FontCache:
 
 def _apply_frosted_glass(overlay, gx, gy, gw, gh, blur_strength=25, darken=0.35):
     """
-    Milchglas-Effekt: Bildbereich HINTER dem Panel (gx,gy,gw,gh) weichzeichnen
-    und abdunkeln, direkt ins overlay schreiben.
+    Frosted glass: blur and darken the image area BEHIND the panel
+    (gx,gy,gw,gh), writing straight into the overlay.
 
     Performance-Trick: Downscale → Blur (klein) → Upscale. Das Hochskalieren
-    erzeugt zusätzliche Weichheit, der Blur läuft auf einem Bruchteil der Pixel.
+    adds extra softness, and the blur runs on a fraction of the pixels.
 
-    blur_strength: 0..100 (höher = verschwommener)
-    darken:        0..1  (0 = keine Abdunklung, 1 = schwarz)
+    blur_strength: 0..100 (higher = blurrier)
+    darken:        0..1  (0 = no darkening, 1 = black)
     """
     h, w = overlay.shape[:2]
     x1, y1 = max(0, gx), max(0, gy)
@@ -244,16 +244,16 @@ def _apply_frosted_glass(overlay, gx, gy, gw, gh, blur_strength=25, darken=0.35)
     roi = overlay[y1:y2, x1:x2]
     rh, rw = roi.shape[:2]
 
-    # Immer stark downscalen (fixer kleiner Zielbereich) → Blur ist billig und
-    # konsistent schnell, unabhängig von der Panelgröße. Die Blur-Stärke steuert
-    # primär den Kernel auf dem kleinen Bild + wie klein skaliert wird.
-    target = max(60, int(200 - blur_strength))   # stärker = kleiner = weicher
+    # Always downscale heavily (a fixed small target area) -> the blur is cheap
+    # and consistently fast, independent of the panel size. The blur strength
+    # mainly controls the kernel on the small image plus how far it is scaled.
+    target = max(60, int(200 - blur_strength))   # stronger = smaller = softer
     scale = min(1.0, target / max(rw, rh))
     small_w = max(1, int(rw * scale))
     small_h = max(1, int(rh * scale))
 
     small = cv2.resize(roi, (small_w, small_h), interpolation=cv2.INTER_AREA)
-    k = max(1, int(blur_strength / 12) * 2 + 1)   # kleiner Kernel auf kleinem Bild
+    k = max(1, int(blur_strength / 12) * 2 + 1)   # small kernel on a small image
     small = cv2.GaussianBlur(small, (k, k), 0)
     blurred = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_LINEAR)
 
@@ -268,9 +268,9 @@ def _composite_text_rgba(canvas, cx, cy, canvas_w, canvas_h,
                          label_x, label_fs, title_fs, vis_h_fn,
                          text_style, sw_label, sw_title):
     """
-    Rendert Titel + Achsenlabels mit echtem Anti-Aliasing auf ein
-    transparentes RGBA-Overlay und komponiert es alpha-korrekt in den Canvas.
-    Erhält weiche Kanten (kein Masken-Threshold).
+    Renders the title and axis labels with real anti-aliasing onto a
+    transparent RGBA overlay and composites it into the canvas with correct
+    alpha. Keeps the soft edges (no mask threshold).
     Style: Hard Outline (Pillow-Stroke) / Drop Shadow (versetzte Kopie) / None.
     """
     if not PILLOW:
@@ -280,7 +280,7 @@ def _composite_text_rgba(canvas, cx, cy, canvas_w, canvas_h,
     except Exception:
         return
 
-    # Transparentes RGBA-Bild in Canvas-Größe
+    # Transparent RGBA image at canvas size
     layer = PILImage.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
     draw  = PILDraw.Draw(layer)
 
@@ -307,7 +307,7 @@ def _composite_text_rgba(canvas, cx, cy, canvas_w, canvas_h,
     # Achsenlabels
     for item, grid_y in zip(grid_items, grid_ys):
         if len(item) > 2 and item[2]:
-            continue   # x-Präfix: kein Label
+            continue   # x prefix: no label
         label = item[0]
         lby = grid_y - vis_h_fn(label) // 2
         lby = max(0, min(canvas_h - label_fs, lby))
@@ -316,7 +316,7 @@ def _composite_text_rgba(canvas, cx, cy, canvas_w, canvas_h,
     # Titel
     _draw_one(title, title_x, title_y, title_fs, sw_title)
 
-    # Alpha-korrekt in den RGBA-Canvas kompositen (über bestehende BG/Grid)
+    # Composite into the RGBA canvas with correct alpha (over the existing BG/grid)
     layer_np = np.array(layer)   # (H, W, 4) RGBA
     la = layer_np[:, :, 3:4].astype(np.float32) / 255.0
     lc = layer_np[:, :, :3].astype(np.float32)
@@ -334,8 +334,8 @@ def _draw_text_pillow(img: np.ndarray, text: str, x: int, y: int,
                       font_size: int, color=(255,255,255),
                       stroke_color=(0,0,0), stroke_width=3) -> np.ndarray:
     """
-    Text mit Pillow TrueType auf ROI zeichnen.
-    Nur das minimale ROI wird konvertiert (schnell).
+    Draw text with Pillow TrueType onto an ROI.
+    Only the minimal ROI is converted (fast).
     """
     if not PILLOW:
         return _draw_text_opencv(img, text, x, y, font_size, color, stroke_color, stroke_width)
@@ -354,7 +354,7 @@ def _draw_text_pillow(img: np.ndarray, text: str, x: int, y: int,
         tw, th, y_off = font_size * len(text), font_size, 0
 
     pad = stroke_width + 4
-    # Unbeschnittene Layer-Geometrie — den Beschnitt macht der Blend.
+    # Unclipped layer geometry - the blend does the clipping.
     ox = x - pad
     oy = y - pad
     lw = (x + tw + pad * 2) - ox
@@ -400,31 +400,31 @@ def draw_graph_background(img: np.ndarray,
                            label_font_size: int,
                            title_font_size: int):
     """
-    Zeichnet den Graph-Hintergrund exakt wie das PNG-Template:
+    Draws the graph background exactly like the PNG template:
       - Transparenter Titel-Bereich oben
       - Semi-transparenter schwarzer Hintergrund (50%)
-      - 5 horizontale Grid-Linien (hellgrau 70%), gleichmäßig verteilt
+      - 5 horizontal grid lines (light grey 70%), evenly spaced
       - Titel oben links (Bebas Neue)
-      - Achsenbeschriftungen rechts außen
+      - axis labels outside on the right
     """
-    # Titel-Bereich Höhe (proportional wie im Template)
+    # Height of the title area (proportional, as in the template)
     title_h = int(gh * TITLE_H_RATIO / (1 - TITLE_H_RATIO - BOTTOM_RATIO))
-    # Alternativ direkt: wir übergeben bereits den Graph-Bereich ohne Titel.
-    # Der Aufrufer gibt gy so, dass Titel darüber liegt.
+    # Alternatively, directly: the graph area without the title is passed in
+    # already. The caller provides gy such that the title sits above it.
 
     # 1. Schwarzer Hintergrund (50% Deckkraft)
     _alpha_composite_rect(img, gx, gy, gx + gw, gy + gh, BG_COLOR, BG_ALPHA)
 
-    # 2. Grid-Linien (5 Stück: oben, 3 Mitte, unten)
-    n_lines = len(grid_labels)   # typisch 3 (top, mid, bottom) → aber wir haben 5 Linien
-    # 5 gleichmäßige Linien entsprechend dem Template (4 Sektionen)
+    # 2. Grid lines (5 of them: top, 3 in the middle, bottom)
+    n_lines = len(grid_labels)   # typically 3 (top, mid, bottom) -> but we have 5 lines
+    # 5 evenly spaced lines matching the template (4 sections)
     n_sections = 4
     line_thickness = max(1, int(gh / 150))
     for i in range(n_sections + 1):
         ly = gy + int(i * gh / n_sections)
         _alpha_composite_hline(img, ly, gx, gx + gw, GRID_COLOR, GRID_ALPHA, line_thickness)
 
-    # 3. Achsenbeschriftungen rechts (außerhalb des Graph-Bereichs)
+    # 3. Axis labels on the right (outside the graph area)
     label_x = gx + gw + max(4, int(gw * 0.008))
     for i, label in enumerate(grid_labels):
         # grid_labels[0] = oben (max), grid_labels[-1] = unten (min)
@@ -440,7 +440,7 @@ def draw_graph_background(img: np.ndarray,
                           label_font_size, LABEL_COLOR, LABEL_STROKE,
                           stroke_width=max(1, label_font_size // 12))
 
-    # 4. Titel oben links (über dem Graph-Bereich)
+    # 4. Title at the top left (above the graph area)
     title_y = gy - title_font_size - max(4, int(gh * 0.02))
     title_y = max(0, title_y)
     _draw_text_pillow(img, title, gx, title_y,
@@ -448,36 +448,37 @@ def draw_graph_background(img: np.ndarray,
                       stroke_width=max(2, title_font_size // 10))
 
 
-LINE_Y_PAD_EXTRA_4K = 0    # zusätzlicher Innenabstand über die Linienstärke hinaus (4K-Bezug)
+LINE_Y_PAD_EXTRA_4K = 0    # extra inner padding beyond the line thickness (4K reference)
 
 
 def _line_y_bounds(gy, gh, s4k, line_thickness):
     """
-    Oberer/unterer Rand des Bereichs, in dem die Graph-Linie gezeichnet wird.
+    Top/bottom edge of the area in which the graph line is drawn.
 
-    Wird von allen VIER Zeichenpfaden benutzt (FPS und Frametime, jeweils mit
-    und ohne Playhead). Vorher stand die Formel viermal einzeln im Code —
-    genau die Art Duplikat, bei der eine Änderung an drei Stellen ankommt und
-    an der vierten nicht.
+    Used by all FOUR drawing paths (FPS and frame time, each with and without
+    a playhead). The formula used to sit in the code four separate times -
+    exactly the kind of duplication where a change lands in three places and
+    not in the fourth.
 
-    Der Innenabstand setzt sich aus zwei Anteilen zusammen:
-      • Rahmenstärke `ot` — der Border-Layer wird NACH der Linie geblendet.
-        Ohne diesen Anteil verschwindet die obere Hälfte der Linie unter dem
-        Rahmen, und die Linie wirkt beim Bestwert dünner als bei mittleren
-        Werten (gemessen bei 4K: nur 3 von 6 px sichtbar).
-      • halbe Linienstärke — cv2 zeichnet die Linie um ihre Mitte.
+    The inner padding is made up of two parts:
+      • the border thickness `ot` - the border layer is blended AFTER the
+        line. Without this part the upper half of the line disappears under
+        the border, and the line looks thinner at the best value than at
+        middling ones (measured at 4K: only 3 of 6 px visible).
+      • half the line thickness - cv2 draws the line around its centre.
 
-    Damit liegt die Linie beim Bestwert (60 fps bzw. 16.7 ms) mit voller
-    Stärke direkt an der Rahmen-Innenkante, auf jeder Ausgabeauflösung:
+    With that, at the best value (60 fps or 16.7 ms) the line sits at full
+    thickness right against the inner edge of the border, at any output
+    resolution:
 
-        Ausgabe   Rahmen  Linie   Abstand alt   neu
-        4K            3      6              8     6   (= 2 px Gewinn)
-        1080p         3      3              4     4   (war schon bündig)
+        Output    Border  Line    Gap old       new
+        4K            3      6              8     6   (= 2 px gained)
+        1080p         3      3              4     4   (was already flush)
 
-    Das erklärt auch, warum der Spalt nur bei 4K auffiel — die alte feste
-    Formel traf bei 1080p zufällig genau den richtigen Wert.
+    That also explains why the gap only showed at 4K - the old fixed formula
+    happened to hit exactly the right value at 1080p.
     """
-    ot = max(2, int(gh / 150)) + 1          # wie in _get_border_layer
+    ot = max(2, int(gh / 150)) + 1          # as in _get_border_layer
     pad = max(0, ot + line_thickness // 2
               + int(round(LINE_Y_PAD_EXTRA_4K * s4k)))
     return gy + pad, gy + gh - pad
@@ -485,17 +486,17 @@ def _line_y_bounds(gy, gh, s4k, line_thickness):
 
 def _draw_polyline_with_gaps(img, px_arr, py_arr, valid, color, line_thickness):
     """
-    Zeichnet die farbige Messlinie für gültige Segmente. Über ungültige
-    Zonen (Fade/einfarbige Frames) wird stattdessen eine GERADE WEISSE Linie
-    gezogen, die den letzten gemessenen Wert mit dem nächsten verbindet —
-    signalisiert 'hier wird nicht gemessen', statt eine Lücke zu lassen.
+    Draws the coloured measurement line for valid segments. Across invalid
+    zones (fades, single-colour frames) a STRAIGHT WHITE line is drawn
+    instead, connecting the last measured value with the next one - signalling
+    'nothing is measured here' rather than leaving a gap.
     """
     n = len(px_arr)
-    # 1. Weiße Brücken über Lücken. Verbindet den letzten gültigen mit dem
-    #    nächsten gültigen Punkt. Reicht die Lücke bis an den Fensterrand
-    #    (kein gültiger Nachbar auf einer Seite), wird die weiße Linie waagerecht
-    #    bis zum Rand fortgesetzt — so bleibt sie durchgehend sichtbar, während
-    #    die Fade-Zone durchs Fenster scrollt (rein von rechts, raus nach links).
+    # 1. White bridges across gaps. Connects the last valid point with the
+    #    next valid one. If the gap reaches the window edge (no valid
+    #    neighbour on one side), the white line continues horizontally to that
+    #    edge - so it stays visible throughout while the fade zone scrolls
+    #    through the window (in from the right, out to the left).
     i = 0
     while i < n:
         if valid[i]:
@@ -514,11 +515,11 @@ def _draw_polyline_with_gaps(img, px_arr, py_arr, valid, color, line_thickness):
             p1 = (int(px_arr[left]),  int(py_arr[left]))
             p2 = (int(px_arr[right]), int(py_arr[right]))
         elif has_left:
-            # Lücke reicht bis zum rechten Rand → waagerecht vom letzten Wert
+            # The gap reaches the right edge -> horizontal from the last value
             p1 = (int(px_arr[left]), int(py_arr[left]))
             p2 = (int(px_arr[n - 1]), int(py_arr[left]))
         elif has_right:
-            # Lücke reicht bis zum linken Rand → waagerecht zum nächsten Wert
+            # The gap reaches the left edge -> horizontal to the next value
             p1 = (int(px_arr[0]), int(py_arr[right]))
             p2 = (int(px_arr[right]), int(py_arr[right]))
         else:
@@ -527,7 +528,7 @@ def _draw_polyline_with_gaps(img, px_arr, py_arr, valid, color, line_thickness):
             cv2.line(img, p1, p2, (255, 255, 255), line_thickness, cv2.LINE_AA)
         i = right
 
-    # 2. Farbige Messlinie für die gültigen Segmente (über die Brücke gezeichnet)
+    # 2. Coloured measurement line for the valid segments (drawn over the bridge)
     seg_x, seg_y = [], []
     for i in range(n):
         if valid[i]:
@@ -544,7 +545,7 @@ def _draw_polyline_with_gaps(img, px_arr, py_arr, valid, color, line_thickness):
 
 
 def _draw_playhead(img, gx, gy, gw, gh, s4k):
-    """Dünne vertikale Mittellinie (aktueller Frame)."""
+    """Thin vertical centre line (the current frame)."""
     cx = gx + gw // 2
     th = max(1, int(2 * s4k))
     y1, y2 = gy, gy + gh
@@ -555,9 +556,9 @@ def _draw_playhead(img, gx, gy, gw, gh, s4k):
 
 def _prepare_window(seq, center_idx, half):
     """
-    Liefert ein zentriertes Fenster [center-half, center+half] mit fester Länge
-    2*half+1. Fehlende Ränder (Videoanfang/-ende) und None/NaN werden als
-    ungültig markiert. Returns (values[], valid[]).
+    Returns a centred window [center-half, center+half] of fixed length
+    2*half+1. Missing edges (start/end of the video) and None/NaN are marked
+    invalid. Returns (values[], valid[]).
     """
     total = 2 * half + 1
     vals = np.full(total, np.nan, dtype=np.float32)
@@ -582,13 +583,14 @@ def draw_fps_line(img: np.ndarray,
                   value_scale=None,
                   playhead=None) -> np.ndarray:
     """
-    Dynamische FPS-Linie; value_scale=(map_x, map_f) für stückweise-lineare Skala.
-    playhead=(full_seq, center_idx): DF-Stil — Fenster zentriert auf center_idx,
-    linke Hälfte Vergangenheit, rechte Hälfte Zukunft, Mittellinie markiert.
+    Dynamic FPS line; value_scale=(map_x, map_f) for a piecewise linear scale.
+    playhead=(full_seq, center_idx): DF style - the window is centred on
+    center_idx, the left half is the past, the right half the future, and the
+    centre line is marked.
     """
     s4k = img.shape[0] / 2160.0
     x_off = max(1, int(3 * s4k))
-    x_r3  = max(1, int(3 * s4k))   # rechts 3px kürzen
+    x_r3  = max(1, int(3 * s4k))   # trim 3px on the right
 
     if playhead is not None:
         full_seq, center_idx = playhead
@@ -603,8 +605,8 @@ def draw_fps_line(img: np.ndarray,
             fracs = np.interp(safe, map_x, map_f).astype(np.float32)
         else:
             fracs = 1.0 - np.clip(safe / max_fps, 0.0, 1.0)
-        # 3px (4K) oben+unten Padding: Linie liegt bei 60fps knapp unter dem
-        # oberen und bei 0fps knapp über dem unteren Rahmen statt exakt drauf.
+        # 3px (at 4K) padding top and bottom: at 60fps the line sits just below
+        # the top border and at 0fps just above the bottom one, not exactly on them.
         y_top, y_bot = _line_y_bounds(gy, gh, s4k, line_thickness)
         py_arr = np.clip((y_top + fracs * (y_bot - y_top)).astype(np.int32), y_top, y_bot)
         _draw_polyline_with_gaps(img, px_arr, py_arr, valid, color, line_thickness)
@@ -642,10 +644,10 @@ def draw_frametime_line(img: np.ndarray,
                         line_thickness: int = 2,
                         value_scale=None,
                         playhead=None) -> np.ndarray:
-    """Dynamische Frametime-Linie; playhead=(full_seq, center_idx) für DF-Stil."""
+    """Dynamic frame time line; playhead=(full_seq, center_idx) for DF style."""
     s4k = img.shape[0] / 2160.0
     x_l = max(1, int(4 * s4k))
-    x_r = max(1, int(2 * s4k)) + max(1, int(3 * s4k))   # 2px + 3px kürzen
+    x_r = max(1, int(2 * s4k)) + max(1, int(3 * s4k))   # trim 2px + 3px
     scale = ft_max - ft_min if ft_max > ft_min else 1.0
 
     if playhead is not None:
@@ -696,40 +698,41 @@ def draw_frametime_line(img: np.ndarray,
 
 class CodeRenderer:
     """
-    Komplett code-basierter Renderer — kein PNG-Template mehr benötigt.
-    Drop-in Ersatz für PNGTemplateRenderer.render_overlay().
+    A fully code-based renderer - no PNG template needed any more.
+    A drop-in replacement for PNGTemplateRenderer.render_overlay().
     """
 
     def __init__(self):
         self.render_times: collections.deque = collections.deque(maxlen=300)
         self._frame_count = 0
         self._current_layout_config = None
-        # Cache für vorgerenderte Hintergründe (key = (gx,gy,gw,gh,title,labels_tuple))
-        # Wird einmalig gerendert, dann per CUDA geblendet — identisch schnell wie PNG-Templates
+        # Cache for pre-rendered backgrounds (key = (gx,gy,gw,gh,title,labels_tuple)).
+        # Rendered once, then blended via CUDA - just as fast as PNG templates.
         self._bg_cache: Dict[tuple, np.ndarray] = {}
         print("✅ CodeRenderer initialized — no PNG templates needed")
 
     def _blend_prep(self, layer):
         """
-        Bereitet die Blend-Daten für einen GECACHTEN Layer EINMALIG vor.
+        Prepare the blend data for a CACHED layer ONCE.
 
-        Hintergrund (gemessen an den echten Layern, 2021×474 auf 4K-Canvas):
-        Der bisherige CPU-Blend konvertierte pro Frame drei volle Arrays nach
-        float32 (alpha, fg, roi) — obwohl alpha und fg sich nie ändern, weil
-        der Layer aus dem Cache kommt. Das ist pro Frame und pro Layer teuer:
+        Background (measured on the real layers, 2021x474 on a 4K canvas):
+        the previous CPU blend converted three full arrays to float32 per
+        frame (alpha, fg, roi) - even though alpha and fg never change,
+        because the layer comes from the cache. That is expensive per frame
+        and per layer:
 
-            Variante                                    bg-Layer   Border
-            A  bisher (3× float32-Konvertierung)          19.95ms   19.41ms
-            B  premultipliziert (Cache)                    5.78ms    7.02ms
-            C  uint16-Integer                              7.63ms    9.68ms
-            D  nur Pixel mit alpha>0                      16.92ms    0.76ms
+            Variant                                     bg layer   Border
+            A  as before (3x float32 conversion)          19.95ms   19.41ms
+            B  premultiplied (cached)                      5.78ms    7.02ms
+            C  uint16 integers                             7.63ms    9.68ms
+            D  only pixels with alpha>0                   16.92ms    0.76ms
 
-        Welche Variante gewinnt, hängt an der Alpha-Belegung des Layers:
-            bg-Layer:     76.7% teiltransparent →  B ist optimal (3.45×)
-            Border-Layer: 98.6% VOLL transparent → D ist optimal (25.4×)
+        Which variant wins depends on the layer's alpha occupancy:
+            bg layer:     76.7% partly transparent -> B is optimal (3.45x)
+            border layer: 98.6% FULLY transparent  -> D is optimal (25.4x)
 
-        Deshalb wird hier pro Layer automatisch entschieden und das Ergebnis
-        zusammen mit dem Layer gecacht.
+        So the choice is made per layer automatically here, and the result is
+        cached together with the layer.
         """
         key = id(layer)
         cache = getattr(self, '_blend_prep_cache', None)
@@ -743,11 +746,11 @@ class CodeRenderer:
         nonzero_frac = float(np.count_nonzero(a8)) / max(a8.size, 1)
 
         if nonzero_frac < 0.30:
-            # Dünn belegt (Borders, Text) → nur die Pixel mit alpha>0 anfassen.
-            # WICHTIG: Zeilen/Spalten-Indizes, KEINE flachen Indizes auf einem
-            # reshape(-1,3). Ein Slice des Overlays ist nicht zusammenhängend;
-            # reshape darauf liefert stillschweigend eine KOPIE, und der Blend
-            # landet im Nichts (im Test: Border wurde gar nicht gezeichnet).
+            # Sparsely occupied (borders, text) -> touch only the pixels with
+            # alpha>0. IMPORTANT: row/column indices, NOT flat indices onto a
+            # reshape(-1,3). A slice of the overlay is not contiguous, and
+            # reshape on it silently returns a COPY, so the blend lands
+            # nowhere (in testing: the border was not drawn at all).
             rows, cols = np.nonzero(a8)
             af = (a8[rows, cols].astype(np.float32) / 255.0)[:, None]
             fg = layer[rows, cols, :3].astype(np.float32)
@@ -755,26 +758,26 @@ class CodeRenderer:
                     'rows': rows, 'cols': cols,
                     'inv': 1.0 - af, 'pre': fg * af}
         else:
-            # Flächig belegt (Graph-Hintergründe) → premultipliziert
+            # Densely occupied (graph backgrounds) -> premultiplied
             a = a8[:, :, None].astype(np.float32) / 255.0
             prep = {'mode': 'dense', 'shape': layer.shape,
                     'inv': 1.0 - a,
                     'pre': layer[:, :, :3].astype(np.float32) * a}
         cache[key] = prep
-        # Referenz halten, damit id() nicht durch GC recycelt und einem
-        # anderen Array zugeordnet wird
+        # Keep a reference so id() is not recycled by the GC and assigned to
+        # a different array
         prep['_ref'] = layer
         return prep
 
     def _blend_rgba(self, overlay, layer, blend_x, blend_y, w, h):
-        """RGBA-Layer an (blend_x, blend_y) in overlay compositen (CUDA oder CPU)."""
+        """Composite an RGBA layer at (blend_x, blend_y) into the overlay (CUDA or CPU)."""
         if _cuda_blender is not None and not getattr(self, 'force_cpu_blend', False):
             _cuda_blender.blend(overlay, layer, blend_x, blend_y)
             return
         self._blend_rgba_cpu(overlay, layer, blend_x, blend_y, w, h)
 
     def _blend_rgba_cpu(self, overlay, layer, blend_x, blend_y, w, h):
-        """Optimierter CPU-Blend, siehe _blend_prep für die Messwerte."""
+        """Optimised CPU blend, see _blend_prep for the measurements."""
         bh, bw = layer.shape[:2]
         y2 = min(h, blend_y + bh)
         x2 = min(w, blend_x + bw)
@@ -784,8 +787,8 @@ class CodeRenderer:
 
         prep = self._blend_prep(layer)
 
-        # Der schnelle Sparse-Pfad arbeitet auf flachen Indizes des VOLLEN
-        # Layers — er ist nur gültig, wenn der Layer nicht beschnitten wird.
+        # The fast sparse path works on flat indices of the FULL layer - it is
+        # only valid while the layer is not clipped.
         if prep['mode'] == 'sparse' and th == bh and tw == bw:
             sub = overlay[blend_y:y2, blend_x:x2]
             rows, cols = prep['rows'], prep['cols']
@@ -807,9 +810,9 @@ class CodeRenderer:
 
     def _get_border_layer(self, gx, gy, gw, gh, title, label_font_size, title_font_size, frame_w, frame_h):
         """
-        Separater Border-Layer (nur weiße Umrandung / Soft Glow), gecacht.
-        Wird NACH der FPS/FT-Linie geblendet, damit deren Überstand am
-        Graph-Rand kaschiert wird. Gleiche Canvas-Geometrie wie _get_bg_layer.
+        Separate border layer (white outline / soft glow only), cached.
+        Blended AFTER the FPS/FT line so its overshoot at the graph edge is
+        hidden. Same canvas geometry as _get_bg_layer.
         """
         style = getattr(self, '_overlay_style', {}) or {}
         border_style = style.get('graph_border', 'White Outline')
@@ -861,10 +864,10 @@ class CodeRenderer:
                       label_font_size: int, title_font_size: int,
                       frame_w: int, frame_h: int) -> np.ndarray:
         """
-        Gibt ein vorgerendertes RGBA-Template zurück.
-        grid_items: Liste von (label, fraction) — fraction 0.0 = oben, 1.0 = unten.
-        Pro Eintrag wird eine Gridlinie + Label gezeichnet (beliebig viele Werte).
-        Overlay-Styles (text_style / graph_border / bg_opacity) kommen aus
+        Returns a pre-rendered RGBA template.
+        grid_items: a list of (label, fraction) - fraction 0.0 = top, 1.0 = bottom.
+        One grid line plus label is drawn per entry (any number of values).
+        Overlay styles (text_style / graph_border / bg_opacity) come from
         self._overlay_style (Layout Editor).
         """
         style = getattr(self, '_overlay_style', {}) or {}
@@ -899,33 +902,33 @@ class CodeRenderer:
             half = thickness // 2
             _rect_rgba(x1, y - half, x2, y + half + 1, color, alpha_val)
 
-        # 1. Hintergrund-Fill: bei Milchglas-Effekt WEGLASSEN (der geblurrte
-        #    Frame liefert dann den Hintergrund). Sonst schwarzer Fill mit
-        #    Deckkraft aus dem Layout Editor.
+        # 1. Background fill: SKIPPED with frosted glass (the blurred frame
+        #    then provides the background). Otherwise a black fill with the
+        #    opacity from the Layout Editor.
         frosted = bool(style.get('frosted_glass', False))
         if not frosted:
             _rect_rgba(cx, cy, cx + gw, cy + gh, BG_COLOR, bg_opacity)
 
-        # 2. Graph-Rand: NICHT hier zeichnen — kommt als separater Layer NACH
-        #    der FPS/FT-Linie, damit der Linienüberstand am Rand kaschiert wird.
-        #    (siehe _get_border_layer + Blend-Reihenfolge in render_overlay)
+        # 2. Graph border: NOT drawn here - it comes as a separate layer AFTER
+        #    the FPS/FT line, so the line's overshoot at the edge is hidden.
+        #    (see _get_border_layer + the blend order in render_overlay)
 
-        # 3. Grid-Linien — eine pro grid_item an dessen Fraktion
+        # 3. Grid lines - one per grid_item at its fraction
         line_thickness = max(1, int(gh / 150))
         grid_ys = [cy + int(item[1] * gh) for item in grid_items]
         for item, ly in zip(grid_items, grid_ys):
             hidden = len(item) > 2 and item[2]
             if hidden:
-                # x-Präfix: graue, dezentere Linie
+                # x prefix: a grey, more subtle line
                 _hline_rgba(ly, cx, cx + gw, (128, 128, 128),
                             GRID_ALPHA * 0.55, line_thickness)
             else:
                 _hline_rgba(ly, cx, cx + gw, GRID_COLOR, GRID_ALPHA, line_thickness)
 
-        # 4. Text — Stroke-Stärke aus overlay_style (outline_width), skaliert.
-        #    WICHTIG: auf frame_h skalieren (wie FPS-Zahl + Stats), NICHT auf
-        #    canvas_h (die kleine Template-Höhe) — sonst wären Titel/Labels
-        #    viel dünner umrandet als die anderen Texte.
+        # 4. Text - stroke width from overlay_style (outline_width), scaled.
+        #    IMPORTANT: scale to frame_h (like the FPS number + stats), NOT to
+        #    canvas_h (the small template height) - otherwise the title and
+        #    labels would get a far thinner outline than the other text.
         style = getattr(self, '_overlay_style', {}) or {}
         ow_base = style.get('outline_width', None)
         if ow_base is not None:
@@ -936,7 +939,7 @@ class CodeRenderer:
         if text_style == 'None':
             sw_label = sw_title = 0
 
-        # ── Manuelle Justierung (Tweak-Block oben in der Datei) ──
+        # ── Manual adjustment (the tweak block at the top of the file) ──
         s4k_lbl = canvas_h / 2160.0
         t_tdx, t_tdy, t_tsize, l_ldx, l_ldy, l_lsize, l_gap = _tweak_for(title)
         # 4K-Offsets → Ausgabepixel
@@ -944,7 +947,7 @@ class CodeRenderer:
         title_dy  = int(t_tdy * s4k_lbl)
         lbl_dx    = int(l_ldx * s4k_lbl)
         lbl_dy    = int(l_ldy * s4k_lbl)
-        # Größen-Multiplikatoren
+        # Size multipliers
         title_fs  = max(6, int(title_font_size * t_tsize))
         label_fs  = max(6, int(label_font_size * l_lsize))
 
@@ -953,7 +956,7 @@ class CodeRenderer:
         title_y  = max(0, cy - title_font_size - max(2, int(gh * 0.01))) + title_dy
         title_x  = cx + title_dx
 
-        # Glyphenhöhe für vertikale Zentrierung (mit getweakter Labelgröße)
+        # Glyph height for vertical centring (with the tweaked label size)
         _f = _FontCache.get(label_fs)
         def _vis_h(t):
             try:
@@ -962,10 +965,10 @@ class CodeRenderer:
             except Exception:
                 return label_fs
 
-        # Text mit ECHTEM Anti-Aliasing in den RGBA-Canvas rendern.
-        # Statt Masken-Threshold (der AA-Kanten zerstört) wird der Text auf
-        # einem transparenten RGBA-Pillow-Bild gezeichnet und alpha-korrekt
-        # in den Canvas komponiert — erhält weiche Kanten wie FPS-Zahl/Stats.
+        # Render the text into the RGBA canvas with REAL anti-aliasing.
+        # Instead of a mask threshold (which destroys AA edges), the text is
+        # drawn onto a transparent RGBA Pillow image and composited into the
+        # canvas with correct alpha - keeping soft edges like the FPS number.
         _composite_text_rgba(
             canvas, cx, cy, canvas_w, canvas_h,
             grid_items, grid_ys, title, title_x, title_y,
@@ -978,7 +981,7 @@ class CodeRenderer:
         return canvas
 
     def get_default_layout(self, w: int, h: int) -> Dict:
-        """Standard-Layout für 1080p, skaliert auf Zielauflösung."""
+        """Default layout for 1080p, scaled to the target resolution."""
         sx = w / 1920
         sy = h / 1080
         s  = min(sx, sy)
@@ -1024,9 +1027,9 @@ class CodeRenderer:
                        full_dev_seq=None,
                        stats_panel_config=None) -> np.ndarray:
         """
-        Haupt-Rendering-Funktion.
-        Identische Signatur wie PNGTemplateRenderer.render_overlay()
-        → Drop-in Ersatz, keine Änderungen am aufrufenden Code nötig.
+        Main rendering function.
+        The same signature as PNGTemplateRenderer.render_overlay()
+        -> a drop-in replacement, no changes needed in the calling code.
         """
         t_start = time.perf_counter()
         t_debug = {}
@@ -1048,7 +1051,7 @@ class CodeRenderer:
         if layout_config is None:
             layout_config = self.get_default_layout(w, h)
 
-        # FPS/FT scale aus template_config lesen — beliebig viele Grid-Werte
+        # Read the FPS/FT scale from template_config - any number of grid values
         fps_max = 60
         fps_grid_values = [60, 30, 0]
         fps_hidden: set = set()
@@ -1075,18 +1078,18 @@ class CodeRenderer:
                 ft_hidden = set(float(v) for v in ft_data.get('hidden', []))
                 ft_min, ft_max_val = min(ft_grid_values), max(ft_grid_values)
 
-        # ÄQUIDISTANTE Grid-Labels: alle Werte mit gleichem Abstand,
-        # unabhängig von ihrer numerischen Distanz (z.B. 16.7,25,33.3,100).
-        # Die Linien werden über eine stückweise-lineare Skala (np.interp)
-        # auf dieselben Positionen gemappt, damit Linie und Labels passen.
+        # EQUIDISTANT grid labels: all values evenly spaced, independent of
+        # their numeric distance (e.g. 16.7,25,33.3,100). The lines are mapped
+        # onto the same positions through a piecewise linear scale (np.interp),
+        # so line and labels line up.
         fps_sorted_desc = sorted(set(fps_grid_values), reverse=True)
         n_fps = max(1, len(fps_sorted_desc) - 1)
         fps_grid_items = [
             (f"{v:g}", i / n_fps, v in fps_hidden)
             for i, v in enumerate(fps_sorted_desc)
         ]
-        # Mapping-Arrays für np.interp (x aufsteigend)
-        # x aufsteigend; frac: kleinster Wert unten (1.0), größter oben (0.0)
+        # Mapping arrays for np.interp (x ascending)
+        # x ascending; frac: smallest value at the bottom (1.0), largest at the top (0.0)
         fps_map_x = np.array(sorted(set(fps_grid_values)), dtype=np.float32)
         fps_map_f = np.array([1.0 - j / n_fps for j in range(len(fps_map_x))],
                              dtype=np.float32)
@@ -1102,15 +1105,15 @@ class CodeRenderer:
         self._fps_scale = (fps_map_x, fps_map_f)
         self._ft_scale  = (ft_map_x, ft_map_f)
 
-        # Font-Größen
+        # Font sizes
         scale = min(w / 1920, h / 1080)
-        # Text-Boost (z.B. Comparison-Modus: Titel/Labels größer für Lesbarkeit)
+        # Text boost (e.g. comparison mode: larger title/labels for legibility)
         _tb = float((getattr(self, '_overlay_style', {}) or {}).get('text_boost', 1.0))
         title_size    = max(8, int(36 * scale * _tb))
         label_size_ft = max(8, int(19 * scale * _tb))
         label_size_fr = max(8, int(24 * scale * _tb))
         label_size    = label_size_ft
-        # Liniendicke: Basis @1080p aus Layout Editor (default 2px), skaliert
+        # Line thickness: base @1080p from the Layout Editor (default 2px), scaled
         base_thick = 2
         if template_config and template_config.get('fps_line_thickness'):
             try:
@@ -1126,14 +1129,14 @@ class CodeRenderer:
             gx = frg['x'];  gy = frg['y']
             gw = frg['width']; gh = frg['height']
 
-            # Milchglas-Effekt: NUR der Graph-Box-Bereich (nicht Titel/Labels)
+            # Frosted glass: ONLY the graph box area (not the title/labels)
             _st = getattr(self, '_overlay_style', {}) or {}
             if _st.get('frosted_glass', False):
                 _apply_frosted_glass(overlay, gx, gy, gw, gh,
                                      blur_strength=int(_st.get('frost_blur', 25)),
                                      darken=float(_st.get('frost_darken', 0.35)))
 
-            # Hintergrund aus Cache holen und per CUDA blenden (klein, wie PNG-Template)
+            # Fetch the background from the cache and blend it via CUDA (small, like a PNG template)
             bg = self._get_bg_layer(gx, gy, gw, gh, "FRAME RATE", fps_grid_items,
                                     label_size_fr, title_size, w, h)
             # Canvas-Ursprung = gx, gy minus title_margin
@@ -1141,7 +1144,7 @@ class CodeRenderer:
             left_m   = max(3, int(gw * 0.003))
             blend_x  = max(0, gx - left_m)
             blend_y  = max(0, gy - title_margin)
-            # Zentral über _blend_rgba — nutzt den optimierten CPU-Pfad mit
+            # Centrally through _blend_rgba - uses the optimised CPU path with
             # vorbereiteten, gecachten Alpha-Daten (siehe _blend_prep).
             self._blend_rgba(overlay, bg, blend_x, blend_y, w, h)
 
@@ -1151,7 +1154,7 @@ class CodeRenderer:
                           value_scale=getattr(self, '_fps_scale', None),
                           playhead=_ph_fps)
 
-            # Border-Layer ÜBER der Linie blenden (kaschiert Linienüberstand)
+            # Blend the border layer ON TOP of the line (hides the line overshoot)
             border = self._get_border_layer(gx, gy, gw, gh, "FRAME RATE",
                                              label_size_fr, title_size, w, h)
             self._blend_rgba(overlay, border, blend_x, blend_y, w, h)
@@ -1164,21 +1167,21 @@ class CodeRenderer:
             gx = ftg['x'];  gy = ftg['y']
             gw = ftg['width']; gh = ftg['height']
 
-            # Milchglas-Effekt: NUR der Graph-Box-Bereich (nicht Titel/Labels)
+            # Frosted glass: ONLY the graph box area (not the title/labels)
             _st = getattr(self, '_overlay_style', {}) or {}
             if _st.get('frosted_glass', False):
                 _apply_frosted_glass(overlay, gx, gy, gw, gh,
                                      blur_strength=int(_st.get('frost_blur', 25)),
                                      darken=float(_st.get('frost_darken', 0.35)))
 
-            # Hintergrund aus Cache holen und per CUDA blenden
+            # Fetch the background from the cache and blend it via CUDA
             bg = self._get_bg_layer(gx, gy, gw, gh, "FRAME TIME", ft_grid_items,
                                     label_size_ft, title_size, w, h)
             title_margin = title_size + max(6, int(gh * 0.02)) + 8
             left_m   = max(3, int(gw * 0.003))
             blend_x  = max(0, gx - left_m)
             blend_y  = max(0, gy - title_margin)
-            # Zentral über _blend_rgba — nutzt den optimierten CPU-Pfad mit
+            # Centrally through _blend_rgba - uses the optimised CPU path with
             # vorbereiteten, gecachten Alpha-Daten (siehe _blend_prep).
             self._blend_rgba(overlay, bg, blend_x, blend_y, w, h)
 
@@ -1188,7 +1191,7 @@ class CodeRenderer:
                                 value_scale=getattr(self, '_ft_scale', None),
                                 playhead=_ph_ft)
 
-            # Border-Layer ÜBER der Linie blenden
+            # Blend the border layer ON TOP of the line
             border = self._get_border_layer(gx, gy, gw, gh, "FRAME TIME",
                                              label_size_ft, title_size, w, h)
             self._blend_rgba(overlay, border, blend_x, blend_y, w, h)
@@ -1207,9 +1210,9 @@ class CodeRenderer:
             fps_font_size = max(6, int(fps_font_size * FPS_NUM_SIZE))
             _fps_dx = int(FPS_NUM_DX * _s4k_fps)
             _fps_dy = int(FPS_NUM_DY * _s4k_fps)
-            # FPS-Zahl sitzt exakt auf ihrer Layout-Position (kein Legacy-
-            # Offset mehr) — damit stimmen Layout Editor und Video überein und
-            # die Zahl lässt sich frei positionieren.
+            # The FPS number sits exactly on its layout position (no legacy
+            # offset any more) - so the Layout Editor and the video agree and
+            # the number can be positioned freely.
             y_offset = _fps_dy
             fps_text = "---" if current_fps < 0 else str(int(current_fps))
 
@@ -1223,13 +1226,13 @@ class CodeRenderer:
                 _sw = max(3, fps_font_size // 15)
 
             _pf = None
-            # FPS-Zahl über thread-lokalen Font-Cache rendern (kein geteiltes
-            # Font-Objekt mutieren → thread-sicher ohne Lock).
+            # Render the FPS number through the thread-local font cache (no shared
+            # font object is mutated -> thread-safe without a lock).
             _pf = _FontCache.get(fps_font_size)
 
             _fx = fpsd['x'] + _fps_dx
             # Style-bewusster Pillow-Pfad (Hard Outline / Drop Shadow / None),
-            # nutzt den thread-lokalen Font.
+            # uses the thread-local font.
             overlay = _draw_text_styled(
                 overlay, fps_text,
                 _fx, fpsd['y'] + y_offset,
@@ -1297,10 +1300,10 @@ class CodeRenderer:
         t_debug['statistics'] = time.perf_counter() - t0
 
         # ── Timing ─────────────────────────────────────────────────────────────
-        # ── Stats-Panel (alternativer Anzeigemodus) ─────────────────────────
-        # Wird nach den Graphen gezeichnet, damit es darüber liegt. Ist es
-        # aktiv, sind die klassischen Graphen normalerweise abgeschaltet —
-        # das entscheidet aber das Layout, nicht der Renderer.
+        # ── Stats panel (alternative display mode) ──────────────────────────
+        # Drawn after the graphs so it sits on top. When it is active the
+        # classic graphs are normally switched off - but that is decided by
+        # the layout, not by the renderer.
         if stats_panel_config and stats_panel_config.get('enabled'):
             try:
                 from stats_panel import render_panel as _render_panel
@@ -1311,18 +1314,19 @@ class CodeRenderer:
                               ft_scale=getattr(self, '_ft_panel_scale', None))
             except Exception as _e:
                 if not getattr(self, '_panel_err_logged', False):
-                    print(f"⚠️ Stats-Panel konnte nicht gezeichnet werden: {_e}")
+                    print(f"⚠️ Could not draw the stats panel: {_e}")
                     self._panel_err_logged = True
 
-        # ── Abweichungs-Marker ──────────────────────────────────────────────
-        # Roter Block oben rechts, solange das Material vom Baseline-Wert
-        # abweicht. Bewusst ganz am Ende gezeichnet, also über allem anderen.
+        # ── Deviation marker ────────────────────────────────────────────────
+        # A red block in the top right corner for as long as the footage
+        # deviates from the baseline value. Deliberately drawn at the very
+        # end, so it sits above everything else.
         if full_dev_seq is not None and playhead_index is not None:
             if 0 <= playhead_index < len(full_dev_seq) and full_dev_seq[playhead_index]:
                 _st = getattr(self, '_overlay_style', {}) or {}
-                # Größe in 1080p-Pixeln, wie alle anderen Layout-Angaben,
-                # und mit der Ausgabehöhe skaliert — sonst wäre der Block
-                # bei 4K nur ein Viertel so groß wie im Editor gedacht.
+                # Size in 1080p pixels, like every other layout value, scaled
+                # with the output height - otherwise the block would be only a
+                # quarter of the intended size at 4K.
                 _sz = int(round(float(_st.get('deviation_marker_size', 50))
                                 * max(1.0, h / 1080.0)))
                 _mg = int(round(float(_st.get('deviation_marker_margin', 20))
@@ -1341,9 +1345,9 @@ class CodeRenderer:
         self._frame_count += 1
 
         # ── Stufen-Zeiten thread-sicher aufsummieren ────────────────────
-        # Vorher wurde hier pro Frame geprintet und im Parallel-Modus ganz
-        # unterdrückt — dadurch gab es für den 6-Worker-Lauf gar keine
-        # Aufschlüsselung. Jetzt wird summiert und am Ende einmal berichtet.
+        # This used to print per frame and was suppressed entirely in parallel
+        # mode, which meant the 6-worker run produced no breakdown at all.
+        # Now it is accumulated and reported once at the end.
         acc = getattr(self, '_stage_acc', None)
         if acc is None:
             import threading
@@ -1359,8 +1363,8 @@ class CodeRenderer:
 
     def get_stage_summary(self):
         """
-        Aufschlüsselung der Overlay-Zeit, summiert über alle Worker-Threads.
-        Gibt None zurück, wenn nichts gemessen wurde.
+        Breakdown of the overlay time, summed across all worker threads.
+        Returns None when nothing was measured.
         """
         acc = getattr(self, '_stage_acc', None)
         if not acc or not acc['n']:
@@ -1369,13 +1373,13 @@ class CodeRenderer:
         parts = [(k, acc.get(k, 0.0)) for k in
                  ('copy', 'fps_graph', 'ft_graph', 'fps_number', 'statistics')]
         total = acc['total'] or 1e-9
-        lines = [f"🔬 Overlay-Aufschlüsselung ({n} Frames, "
+        lines = [f"🔬 Overlay breakdown ({n} frames, "
                  f"{total:.1f}s Worker-Zeit gesamt):"]
         named = {'copy': 'Frame kopieren',
                  'fps_graph': 'FPS-Graph (Milchglas+Blend+Linie)',
                  'ft_graph': 'Frametime-Graph',
                  'fps_number': 'FPS-Zahl (Text)',
-                 'statistics': 'Statistik-Text'}
+                 'statistics': 'Statistics text'}
         acc_sum = 0.0
         for k, v in parts:
             acc_sum += v
@@ -1392,39 +1396,38 @@ class CodeRenderer:
 
 _TEXT_LAYER_CACHE: "collections.OrderedDict[tuple, tuple]" = collections.OrderedDict()
 _TEXT_LAYER_LOCK = threading.Lock()
-_TEXT_LAYER_BUDGET = 192 * 1024 * 1024   # Bytes, LRU-Verdrängung
+_TEXT_LAYER_BUDGET = 192 * 1024 * 1024   # bytes, LRU eviction
 _TEXT_LAYER_BYTES = [0]
 _TEXT_LAYER_STATS = {'hit': 0, 'miss': 0}
 
 
 def _text_layer(key, size_wh, draw_fn):
     """
-    Gibt einen gecachten RGBA-Textlayer zurück; rendert ihn beim ersten Mal.
+    Returns a cached RGBA text layer, rendering it on first use.
 
-    Warum: Statistik- und FPS-Text wurden pro Frame komplett neu gezeichnet —
-    ROI nach RGB konvertieren, in ein PIL-Bild kopieren, Text MIT Stroke
-    rendern (der Stroke zeichnet die Glyphe mehrfach), zurückkopieren,
-    zurückkonvertieren.
+    Why: the statistics and FPS text were redrawn completely every frame -
+    convert the ROI to RGB, copy it into a PIL image, render the text WITH a
+    stroke (which draws the glyph several times), copy it back, convert it
+    back.
 
-    Der Cache muss dabei drei Fallen vermeiden, die beim ersten Anlauf alle
-    drei zugeschlagen haben (gemessen am 4K-Lauf, 1659 Statistik-Frames):
+    The cache has to avoid three traps, all three of which hit on the first
+    attempt (measured on the 4K run, 1659 statistics frames):
 
-      1. NICHT den ganzen Statistik-Block als einen Layer cachen. AVG, MIN
-         und MAX ändern sich unabhängig → 243 verschiedene Kombinationen.
-         Pro Zeile gecacht sind es 92 / 31 / 131 Layer, also Trefferquoten
-         von 94.5% / 98.1% / 92.1%.
-      2. NICHT nach id(pil_font) schlüsseln. _FontCache ist thread-lokal,
-         jeder der 6 Worker hätte eigene Einträge für identischen Inhalt →
-         6-fache Vervielfachung. Die Schriftgröße im Schlüssel genügt, weil
-         _FontCache.get(size) deterministisch dieselbe Schrift liefert.
-         Die Layer sind nach dem Rendern nur noch lesend → teilbar.
-      3. Beim Überlauf NICHT den ganzen Cache leeren. Aus 243 × 6 Threads
-         × 2 Blöcken wurden 2916 Einträge gegen ein Limit von 512 — der
-         Cache hat sich dauernd selbst geleert und war praktisch wirkungslos
-         (21.88 ms → 20.55 ms statt der erwarteten ~2 ms). Jetzt LRU mit
-         Speicherbudget.
+      1. Do NOT cache the whole statistics block as one layer. AVG, MIN and
+         MAX change independently -> 243 different combinations. Cached per
+         line it is 92 / 31 / 131 layers, i.e. hit rates of
+         94.5% / 98.1% / 92.1%.
+      2. Do NOT key on id(pil_font). _FontCache is thread-local, so each of
+         the 6 workers would get its own entries for identical content -> a
+         sixfold multiplication. The font size in the key is enough, because
+         _FontCache.get(size) deterministically returns the same font.
+         After rendering, the layers are read-only -> shareable.
+      3. Do NOT clear the whole cache on overflow. 243 x 6 threads x 2 blocks
+         became 2916 entries against a limit of 512 - the cache kept clearing
+         itself and was practically useless (21.88 ms -> 20.55 ms instead of
+         the expected ~2 ms). Now it is LRU with a memory budget.
 
-    draw_fn(pil_image) zeichnet den Text auf ein transparentes RGBA-Bild.
+    draw_fn(pil_image) draws the text onto a transparent RGBA image.
     """
     with _TEXT_LAYER_LOCK:
         hit = _TEXT_LAYER_CACHE.get(key)
@@ -1439,14 +1442,14 @@ def _text_layer(key, size_wh, draw_fn):
     pil = PILImage.new('RGBA', (max(1, lw), max(1, lh)), (0, 0, 0, 0))
     draw_fn(pil)
     layer = np.array(pil)                      # RGBA in PIL-Kanalordnung
-    # Die Zeichenroutinen arbeiteten bisher auf einem per cvtColor
-    # getauschten ROI und tauschten danach zurück. Damit der Layer direkt
-    # in das Bild geblendet werden kann, wird der Tausch einmalig hier
-    # vorgenommen statt pro Frame zweimal auf dem ganzen ROI.
+    # The drawing routines used to work on an ROI swapped by cvtColor and
+    # swapped it back afterwards. So the layer can be blended straight into
+    # the image, the swap is done once here instead of twice per frame on the
+    # whole ROI.
     layer = np.ascontiguousarray(layer[:, :, [2, 1, 0, 3]])
 
-    # Blend-Daten gleich mitvorbereiten. Textlayer sind zu >85% transparent,
-    # deshalb lohnt der Sparse-Pfad hier besonders.
+    # Prepare the blend data at the same time. Text layers are >85%
+    # transparent, so the sparse path pays off especially well here.
     a8 = layer[:, :, 3]
     rows, cols = np.nonzero(a8)
     af = (a8[rows, cols].astype(np.float32) / 255.0)[:, None]
@@ -1461,7 +1464,7 @@ def _text_layer(key, size_wh, draw_fn):
             _TEXT_LAYER_CACHE[key] = entry
             _TEXT_LAYER_BYTES[0] += nbytes
             _TEXT_LAYER_CACHE[key] = entry
-            # LRU-Verdrängung statt Komplettlöschung
+            # LRU eviction instead of clearing everything
             while _TEXT_LAYER_BYTES[0] > _TEXT_LAYER_BUDGET and len(_TEXT_LAYER_CACHE) > 1:
                 _k, _v = _TEXT_LAYER_CACHE.popitem(last=False)
                 _l, _p = _v
@@ -1473,7 +1476,7 @@ def _text_layer(key, size_wh, draw_fn):
 
 
 def text_cache_stats():
-    """Trefferquote des Textlayer-Caches (für die Laufzeit-Diagnose)."""
+    """Hit rate of the text layer cache (for runtime diagnostics)."""
     h, m = _TEXT_LAYER_STATS['hit'], _TEXT_LAYER_STATS['miss']
     if h + m == 0:
         return None
@@ -1486,7 +1489,7 @@ _TEXT_WIDTH_CACHE: Dict[tuple, int] = {}
 
 
 def _text_width(draw, text, font, font_size):
-    """Textbreite messen — gecacht, weil das Font-Layout pro Frame lief."""
+    """Measure text width - cached, because the font layout ran every frame."""
     k = (text, font_size)
     w = _TEXT_WIDTH_CACHE.get(k)
     if w is None:
@@ -1497,8 +1500,8 @@ def _text_width(draw, text, font, font_size):
 
 def _blend_text_layer(img, entry, ox, oy):
     """
-    Textlayer an (ox, oy) in img blenden, inklusive Beschnitt an den
-    Bildrändern (auch bei negativem Ursprung).
+    Blend a text layer at (ox, oy) into img, including clipping at the image
+    edges (also with a negative origin).
     """
     layer, prep = entry
     ih, iw = img.shape[:2]
@@ -1516,10 +1519,10 @@ def _blend_text_layer(img, entry, ox, oy):
     inv, pre = prep['inv'], prep['pre']
 
     # Beschnitt auch im Sparse-Pfad behandeln. Vorher fiel jeder beschnittene
-    # Fall auf den dichten Pfad zurück — und das ist der Normalfall, nicht die
-    # Ausnahme: die FPS-Zahl sitzt so weit oben, dass der Layer-Ursprung
-    # negativ wird (y=88 bei pad=96). Dadurch war der gecachte Pfad sogar
-    # LANGSAMER als das ursprüngliche Neuzeichnen.
+    # falls back to the dense path - and that is the normal case, not the
+    # exception: the FPS number sits so high up that the layer origin becomes
+    # negative (y=88 with pad=96). That made the cached path even SLOWER than
+    # the original redraw.
     if sx or sy or cw != lw or ch != lh:
         m = ((rows >= sy) & (rows < sy + ch) &
              (cols >= sx) & (cols < sx + cw))
@@ -1537,14 +1540,14 @@ def _blend_text_layer(img, entry, ox, oy):
 
 
 def _draw_text_styled(img, text, x, y, size, text_style, stroke_w, pil_font=None):
-    """Text mit Overlay-Style zeichnen: Hard Outline / Drop Shadow / None."""
+    """Draw text with an overlay style: Hard Outline / Drop Shadow / None."""
     try:
         from PIL import ImageDraw as PILDraw
         if pil_font is None:
             pil_font = _FontCache.get(size)
         h, w = img.shape[:2]
         pad = size + stroke_w + 8
-        # Unbeschnittene Layer-Geometrie (Beschnitt macht der Blend)
+        # Unclipped layer geometry (the blend does the clipping)
         ox = x - pad; oy = y - pad
         lw = size * max(1, len(text)) + pad * 2
         lh = size + pad * 2
@@ -1558,11 +1561,11 @@ def _draw_text_styled(img, text, x, y, size, text_style, stroke_w, pil_font=None
                 if pil_font is None:
                     draw.text((lx, ly), text, fill=(255, 255, 255, 255))
                 elif text_style == 'Drop Shadow':
-                    # Schatten und Text als GETRENNTE Layer, nacheinander
-                    # geblendet. Beides in einen Layer zu zeichnen ergibt an
-                    # der Überlappungskante andere Alphawerte als das
-                    # ursprüngliche direkte Zeichnen auf den Hintergrund
-                    # (gemessen: bis zu 65 Stufen Abweichung auf 146 Pixeln).
+                    # Shadow and text as SEPARATE layers, blended one after
+                    # the other. Drawing both into one layer gives different
+                    # alpha values along the overlap edge than the original
+                    # direct drawing onto the background (measured: up to 65
+                    # levels of deviation across 146 pixels).
                     off = max(2, stroke_w)
                     if which == 'shadow':
                         draw.text((lx + off, ly + off), text, font=pil_font,
@@ -1577,9 +1580,9 @@ def _draw_text_styled(img, text, x, y, size, text_style, stroke_w, pil_font=None
                               stroke_width=max(1, stroke_w), stroke_fill=(0, 0, 0, 255))
             return _draw
 
-        # KEIN id(pil_font) im Schlüssel: _FontCache ist thread-lokal, das
-        # ergäbe pro Worker eigene Einträge für identischen Inhalt. Die
-        # Größe genügt, weil _FontCache.get(size) deterministisch ist.
+        # NO id(pil_font) in the key: _FontCache is thread-local, which would
+        # give every worker its own entries for identical content. The size is
+        # enough, because _FontCache.get(size) is deterministic.
         parts = ('shadow', 'text') if text_style == 'Drop Shadow' else ('all',)
         for which in parts:
             key = ('styled', which, text, size, text_style, stroke_w,
@@ -1594,7 +1597,7 @@ def _draw_text_styled(img, text, x, y, size, text_style, stroke_w, pil_font=None
 def _draw_stats_pillow_shared(img, stats, x0, y0, spacing,
                                font_size, border_thickness, suffix, font_obj,
                                text_style='Hard Outline'):
-    """Stats in einem einzigen Pillow-ROI zeichnen (schnell).
+    """Draw the stats in a single Pillow ROI (fast).
     text_style: 'Hard Outline' | 'Drop Shadow' | 'Soft Glow' | 'None'."""
     if not PILLOW:
         return
@@ -1606,15 +1609,15 @@ def _draw_stats_pillow_shared(img, stats, x0, y0, spacing,
             f"MAX: {stats['max']:.1f}{suffix}",
         ]
 
-        # Font thread-lokal laden (kein geteiltes Objekt mutieren) — die
-        # Stats-Größe wird direkt aus dem thread-lokalen Cache geholt.
+        # Load the font thread-locally (do not mutate a shared object) - the
+        # stats size is taken straight from the thread-local cache.
         pil_font = _FontCache.get(font_size)
 
-        # Abstände aus gemessener Textbreite statt fixem spacing —
-        # verhindert Überlappung bei jeder Auflösung/Fontgröße.
+        # Spacing from the measured text width instead of a fixed spacing -
+        # prevents overlap at any resolution and font size.
         gap = max(12, font_size)
         probe = PILDraw.Draw(PILImage.new('RGB', (8, 8)))
-        # Breiten gecacht — das Font-Layout lief bisher pro Frame und Zeile
+        # Widths cached - the font layout used to run per frame and per line
         widths = [_text_width(probe, t, pil_font, font_size) for t in texts]
         x_offsets = [0,
                      widths[0] + gap,
@@ -1623,7 +1626,7 @@ def _draw_stats_pillow_shared(img, stats, x0, y0, spacing,
         total_h = font_size + border_thickness * 2 + int(font_size * 0.4) + 20
 
         ih, iw = img.shape[:2]
-        # Unbeschnittene Layer-Geometrie — der Blend übernimmt den Beschnitt
+        # Unclipped layer geometry - the blend takes care of the clipping
         ox = x0 - border_thickness - 4
         oy = y0 - font_size - border_thickness - 4
         lw = (x0 + total_w) - ox
@@ -1640,9 +1643,9 @@ def _draw_stats_pillow_shared(img, stats, x0, y0, spacing,
         if lh <= 0:
             return
 
-        # JEDE Zeile als eigener Layer: AVG, MIN und MAX ändern sich
-        # unabhängig voneinander. Als ein gemeinsamer Layer gäbe es das
-        # Produkt aller Kombinationen (gemessen 243 statt 92/31/131).
+        # EVERY line as its own layer: AVG, MIN and MAX change independently
+        # of each other. As one shared layer there would be the product of all
+        # combinations (measured: 243 instead of 92/31/131).
         def _mk(text, lx, ly, which):
             def _draw(pil):
                 draw = PILDraw.Draw(pil)

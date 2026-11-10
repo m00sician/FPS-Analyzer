@@ -11,11 +11,11 @@ dist/
 venv/
 env/
 
-# ── Mitgelieferte Binaries ───────────────────────────────────────────────
-# ffmpeg.exe ist ~147 MB und sprengt GitHubs 100-MB-Grenze pro Datei.
-# Es gehört ohnehin nicht ins Repo: Jede Plattform bringt ihr eigenes mit,
-# und eine eingecheckte Windows-Binary wäre für Linux/macOS nutzlos.
-# Siehe README für die Installation.
+# ── Bundled binaries ─────────────────────────────────────────────────────
+# ffmpeg.exe is ~147 MB and exceeds GitHub's 100 MB per-file limit.
+# It does not belong in the repo anyway: every platform brings its own, and
+# a checked-in Windows binary would be useless on Linux and macOS.
+# See the README for how to install it.
 ffmpeg.exe
 ffprobe.exe
 ffmpeg
@@ -23,26 +23,26 @@ ffprobe
 *.exe
 *.dll
 
-# ── Analyse-Ergebnisse und Zwischenstände ────────────────────────────────
+# ── Analysis results and intermediate files ──────────────────────────────
 *.fpsdata
 *_fps_analysis.mp4
 *_fps_analysis.mkv
 output/
 exports/
 
-# ── Lokale Einstellungen ─────────────────────────────────────────────────
-# Die eigentlichen Nutzereinstellungen liegen unter ~/.fps_analyzer/,
-# also außerhalb des Projekts. Diese Einträge fangen nur lokale Kopien ab.
+# ── Local settings ───────────────────────────────────────────────────────
+# The actual user settings live under ~/.fps_analyzer/, i.e. outside the
+# project. These entries only catch local copies.
 settings.json
 *.local.json
 
-# ── Große Medien ─────────────────────────────────────────────────────────
+# ── Large media ──────────────────────────────────────────────────────────
 *.mp4
 *.mkv
 *.mov
 *.avi
 
-# ── Werkzeuge und Editoren ───────────────────────────────────────────────
+# ── Tools and editors ────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp

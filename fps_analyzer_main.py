@@ -16,11 +16,11 @@ import os
 import time
 import cv2
 
-# torch ist OPTIONAL und wird nur fuer die CUDA-Erkennung gebraucht.
-# Ein harter Import hier machte es faktisch zur Pflicht (2+ GB Download),
-# obwohl cuda_accelerator.py es korrekt als optional behandelt — und er
-# machte zugleich die ImportError-Behandlung in check_dependencies()
-# unerreichbar, weil das Programm schon hier abbrach.
+# torch is OPTIONAL and is only needed for CUDA detection.
+# A hard import here made it effectively mandatory (a 2+ GB download) even
+# though cuda_accelerator.py treats it correctly as optional - and it also
+# made the ImportError handling in check_dependencies() unreachable, because
+# the program already bailed out at this line.
 try:
     import torch
 except ImportError:
@@ -35,7 +35,7 @@ from menu_manager import MenuManager
 from ui_manager import UIManager, ThemeManager
 from analysis_worker import AnalysisWorker, resize_with_aspect_ratio
 from settings_manager import SettingsManager
-# ✨ NEW IMPORTS für Layout Editor
+# ✨ NEW IMPORTS for the Layout Editor
 
 from layout_manager import LayoutManager
 # 🔧 FIXED: Safe import of OpenCVFontSettings
@@ -44,35 +44,34 @@ from layout_manager import LayoutManager
 
 class PreviewSeeker(QThread):
     """
-    Sucht Vorschau-Frames im Hintergrund und liefert immer nur den ZULETZT
-    angeforderten.
+    Seeks preview frames in the background and only ever delivers the one
+    requested MOST RECENTLY.
 
-    Warum nötig: `cap.set(CAP_PROP_POS_FRAMES, n)` ist bei Langzeit-GOP-Material
-    teuer, weil ab dem vorigen Keyframe alles dekodiert werden muss. Gemessen
-    an 1080p mit GOP 250 (Container, eine CPU):
+    Why this is needed: `cap.set(CAP_PROP_POS_FRAMES, n)` is expensive on
+    long-GOP footage, because everything from the previous keyframe has to be
+    decoded. Measured on 1080p with GOP 250 (container, one CPU):
 
         Frame   0 (Keyframe):    18 ms
         Frame 120:              538 ms
         Frame 250 (Keyframe):  1118 ms
         Frame 500 (Keyframe):  1101 ms
 
-    OpenCVs Seek ist dabei NICHT keyframe-bewusst — ein Sprung auf einen
-    exakten Keyframe kostet genauso viel wie mitten ins GOP. Die Kosten
-    entsprechen grob 4.5 ms je dekodiertem Frame und wachsen bei 4K
-    entsprechend. Ein Wechsel auf ffmpeg bringt nichts, das wurde
-    gegengemessen: gleiche Größenordnung, plus Prozessstart.
+    OpenCV's seek is NOT keyframe aware - jumping to an exact keyframe costs
+    just as much as landing in the middle of a GOP. The cost works out at
+    roughly 4.5 ms per decoded frame and grows accordingly at 4K. Switching to
+    ffmpeg buys nothing; that was measured against this: the same order of
+    magnitude, plus the process start.
 
-    Behebbar ist deshalb nicht die Dauer eines einzelnen Seeks, sondern:
-      • dass er den UI-Thread blockiert (Fenster reagiert nicht mehr und
-        wirkt wie kurz vor dem Absturz)
-      • dass jeder Klick einen eigenen Seek in die Warteschlange legt. Bei
-        fünf Klicks wurden fünf volle Seeks nacheinander abgearbeitet,
-        obwohl nur der letzte interessiert.
+    So what can be fixed is not the duration of a single seek, but:
+      • that it blocks the UI thread (the window stops responding and looks
+        like it is about to crash)
+      • that every click queues a seek of its own. Five clicks meant five full
+        seeks worked through one after another, even though only the last one
+        is of any interest.
 
-    Dieser Thread hält genau EINE offene Anfrage. Kommt während eines Seeks
-    eine neue, wird das alte Ergebnis verworfen und gar nicht erst gesendet.
-    Die Wartezeit bleibt damit die eines einzelnen Seeks, unabhängig davon,
-    wie oft geklickt wurde.
+    This thread holds exactly ONE open request. If a new one arrives during a
+    seek, the old result is discarded and never even sent. The wait therefore
+    stays that of a single seek, no matter how often the user clicked.
     """
 
     frameReady = pyqtSignal(int, object)
@@ -117,9 +116,9 @@ class PreviewSeeker(QThread):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, target)
                 ok, frame = cap.read()
 
-                # Kam inzwischen eine neuere Anfrage, ist dieses Ergebnis
-                # veraltet — nicht senden, sonst flackert die Vorschau
-                # durch überholte Frames.
+                # If a newer request has arrived meanwhile, this result is
+                # stale - do not send it, or the preview flickers with
+                # superseded frames.
                 self._mutex.lock()
                 stale = self._target is not None or self._abort
                 self._mutex.unlock()
@@ -131,19 +130,19 @@ class PreviewSeeker(QThread):
 
 class BebasNeueFont:
     """
-    Schriftobjekt für die Overlay-Texte.
+    Font object for the overlay text.
 
-    Rendert über Pillow/TrueType, sobald eine Bridge und eine Schriftdatei
-    vorliegen, und sonst über cv2.putText. Der OpenCV-Weg ist kein Notnagel,
-    sondern ein vollwertiger zweiter Pfad in render_text() — deshalb genügt
-    EINE Klasse für beide Fälle.
+    Renders through Pillow/TrueType as soon as a bridge and a font file are
+    available, and through cv2.putText otherwise. The OpenCV route is not a
+    stopgap but a fully fledged second path in render_text() - which is why
+    ONE class covers both cases.
 
-    Warum sie hier und nicht mehr in initialize_font_settings steht: Die
-    Klasse war früher lokal im try-Block definiert, und der except-Zweig
-    griff auf eine Klasse OpenCVFontSettings zurück, die es seit dem
-    Entfernen von font_manager.py nicht mehr gibt. Der Rettungspfad warf
-    damit selbst einen NameError — wer das Projekt ohne Bebas Neue oder
-    ohne Pillow startete, bekam statt des Fallbacks einen Absturz.
+    Why it lives here and no longer inside initialize_font_settings: the class
+    used to be defined locally in the try block, and the except branch fell
+    back to a class OpenCVFontSettings that has not existed since
+    font_manager.py was removed. The rescue path therefore raised a NameError
+    itself - anyone starting the project without Bebas Neue or without Pillow
+    got a crash instead of the fallback.
     """
 
     def __init__(self, font_path, font_name, size, thickness, bold,
@@ -161,7 +160,7 @@ class BebasNeueFont:
         self._load_font_with_size(size)
 
     def _load_font_with_size(self, size):
-        """Schrift in der gewünschten Größe laden (nur mit Bridge möglich)."""
+        """Load the font at the requested size (only possible with a bridge)."""
         if not (self.font_path and self._pillow_bridge):
             return
         if not os.path.exists(self.font_path):
@@ -171,11 +170,11 @@ class BebasNeueFont:
                 self.font_path, int(size))
             self._cached_size = size
         except Exception:
-            # Ohne geladene Schrift greift in render_text() der OpenCV-Pfad.
+            # Without a loaded font, render_text() takes the OpenCV path.
             self._pillow_font = None
 
     def render_text(self, img, text, position, scale=1.0):
-        """Text zeichnen — über TrueType wenn möglich, sonst über OpenCV."""
+        """Draw text - through TrueType where possible, otherwise OpenCV."""
         if self.size != self._cached_size and self._pillow_bridge:
             self._load_font_with_size(self.size)
 
@@ -197,7 +196,7 @@ class BebasNeueFont:
         return self._pillow_font is not None
 
     def to_qfont(self):
-        """Für Qt-Vorschauen in der Oberfläche."""
+        """For Qt previews in the interface."""
         qfont = QFont("Arial", int(self.size * 0.75))
         qfont.setBold(self.bold)
         return qfont
@@ -223,9 +222,9 @@ class FPSAnalyzer(QMainWindow):
         # Core properties
 
         self.video_cap = None
-        self.preview_seeker = None      # Hintergrund-Seek fuer die Vorschau
-        self._last_preview_frame = None # zuletzt angezeigter Frame (Neuzeichnen ohne Decode)
-        self._pending_seek_frame = None # noch nicht auf video_cap angewandte Position
+        self.preview_seeker = None      # background seek for the preview
+        self._last_preview_frame = None # the frame shown last (redraw without a decode)
+        self._pending_seek_frame = None # position not yet applied to video_cap
 
         self.playback_timer = QTimer(self)
 
@@ -268,7 +267,7 @@ class FPSAnalyzer(QMainWindow):
 
             self.layout_manager.set_current_layout(saved_layout)
 
-        # Layout-Editor-Einstellungen wiederherstellen
+        # Restore the Layout Editor settings
         self.overlay_style = saved_settings.get('overlay_style', {}) or {}
         self.fade_detection_enabled = saved_settings.get('fade_detection', False)
         self.fade_buffer_ms = saved_settings.get('fade_buffer_ms', 2000)
@@ -341,9 +340,9 @@ class FPSAnalyzer(QMainWindow):
         """
         Die drei Overlay-Schriften anlegen.
 
-        Eine Bridge wird nur gesetzt, wenn Pillow UND truetype_core
-        verfügbar sind. Fehlt eines davon, bekommt BebasNeueFont bridge=None
-        und zeichnet über OpenCV weiter — der Start bricht nicht ab.
+        A bridge is only set when Pillow AND truetype_core are available. If
+        either is missing, BebasNeueFont gets bridge=None and keeps drawing
+        through OpenCV - the start does not abort.
         """
         bridge = None
         try:
@@ -351,9 +350,9 @@ class FPSAnalyzer(QMainWindow):
             if PILLOW_AVAILABLE:
                 bridge = PillowOpenCVBridge()
             else:
-                print("⚠️ Pillow nicht verfügbar — Overlay-Schrift über OpenCV")
+                print("⚠️ Pillow not available - overlay font via OpenCV")
         except Exception as e:
-            print(f"⚠️ TrueType-Setup nicht möglich ({e}) — Overlay-Schrift über OpenCV")
+            print(f"⚠️ TrueType setup not possible ({e}) - overlay font via OpenCV")
 
         bebas_font_path = self.get_bebas_font_path()
 
@@ -397,7 +396,7 @@ class FPSAnalyzer(QMainWindow):
         """Load saved UI settings into widgets - COMPLETE VERSION"""
         saved_settings = self.settings_manager.load_settings()
         try:
-            # WICHTIG: Signale blockieren während dem Laden, um save_current_settings() nicht auszulösen
+            # IMPORTANT: block signals while loading so save_current_settings() is not triggered
             widgets_to_block = [
                 'resolution_combo', 'bitrate_combo', 'fps_graph_combo', 
                 'frametime_combo', 'sensitivity_combo', 'baseline_fps_combo'
@@ -437,7 +436,7 @@ class FPSAnalyzer(QMainWindow):
             saved_fps_template = saved_settings.get('fps_graph_template')
             if saved_fps_template and hasattr(self, 'fps_graph_combo'):
                 if saved_fps_template.get('template') == 'custom':
-                    # Custom-Eintrag neu erzeugen (existiert nach Neustart nicht mehr)
+                    # Recreate the custom entry (it is gone after a restart)
                     vals = saved_fps_template.get('values', [60, 30, 0])
                     hid = set(saved_fps_template.get('hidden', []))
                     lbl = 'Custom (' + ','.join(('x' if v in hid else '') + f"{v:g}" for v in vals) + ')'
@@ -478,13 +477,13 @@ class FPSAnalyzer(QMainWindow):
             if hasattr(self, 'use_cuda_checkbox'):
                 saved_cuda = saved_settings.get('use_cuda', False)
                 self.use_cuda_checkbox.setChecked(saved_cuda and self.cuda_available)
-                self._saved_use_cuda = saved_cuda  # NEU: Aktualisiere den gespeicherten Wert
+                self._saved_use_cuda = saved_cuda  # NEW: update the saved value
 
             # Load preview settings
             saved_internal_res = saved_settings.get('internal_resolution', (1920, 1080))
             self.internal_resolution = saved_internal_res
             
-            # Signale wieder aktivieren
+            # Re-enable signals
             for widget_name in widgets_to_block:
                 if hasattr(self, widget_name):
                     getattr(self, widget_name).blockSignals(False)
@@ -494,7 +493,7 @@ class FPSAnalyzer(QMainWindow):
                 self.update_segment_display()
                 
         except Exception as e:
-            # Signale im Fehlerfall auch wieder aktivieren
+            # Re-enable signals on error as well
             for widget_name in ['resolution_combo', 'bitrate_combo', 'fps_graph_combo', 
                             'frametime_combo', 'sensitivity_combo', 'baseline_fps_combo']:
                 if hasattr(self, widget_name):
@@ -563,7 +562,7 @@ class FPSAnalyzer(QMainWindow):
                 #Baseline FPS
                 'baseline_fps': self.baseline_fps_combo.currentData() if hasattr(self, 'baseline_fps_combo') else 0,
 
-                # Layout-Editor-Einstellungen
+                # Layout Editor settings
                 'overlay_style': getattr(self, 'overlay_style', {}) or {},
                 'fade_detection': getattr(self, 'fade_detection_enabled', False),
                 'fade_buffer_ms': getattr(self, 'fade_buffer_ms', 2000),
@@ -845,44 +844,44 @@ class FPSAnalyzer(QMainWindow):
 
     def open_stats_panel_dialog(self):
         """
-        Stats-Panel-Fenster öffnen (Tools → Stats-Panel).
+        Open the stats panel window (Tools -> Stats Panel).
 
-        Das Panel ist ein alternativer Anzeigemodus: eine abgerundete,
-        halbtransparente Box mit Titel, FPS-Zahl, Statistik, beiden Graphen
-        und frei belegbaren Textfeldern. Konfiguration und Vorschau laufen
-        vollständig in diesem Fenster; beim Encode wird sie über die
-        Settings an den Worker gereicht.
+        The panel is an alternative display mode: a rounded, semi-transparent
+        box with a title, FPS number, statistics, both graphs and freely
+        assignable text fields. Configuration and preview run entirely inside
+        that window; at encode time it is handed to the worker through the
+        settings.
         """
         try:
             from stats_panel_dialog import StatsPanelDialog
-            # Falls schon eine Analyse vorliegt, die echten Verläufe für die
-            # Vorschau bereitstellen statt des Demo-Verlaufs.
+            # If an analysis already exists, hand over the real curves for the
+            # preview instead of the demo curve.
             w = getattr(self, 'analysis_worker', None)
             if w is not None:
                 self._preview_fps_seq = getattr(w, '_full_fps_seq', None)
                 self._preview_ft_seq = getattr(w, '_full_ft_seq', None)
             dlg = StatsPanelDialog(self, self)
             dlg.exec()
-            self.log("🧩 Stats-Panel-Einstellungen übernommen")
+            self.log("🧩 Stats panel settings applied")
         except Exception as e:
-            self.log(f"❌ Stats-Panel konnte nicht geöffnet werden: {e}")
+            self.log(f"❌ Could not open the stats panel: {e}")
 
     def run_resolution_analysis(self):
-        """Auflösungs-Analyse (experimentell): schätzt die interne
-        Renderauflösung eines Videos per FFT-Cutoff-Analyse."""
+        """Resolution analysis (experimental): estimates a video's internal
+        render resolution through FFT cutoff analysis."""
         try:
             from PyQt6.QtWidgets import QFileDialog, QMessageBox
             from PyQt6.QtCore import QThread, pyqtSignal
 
             path, _ = QFileDialog.getOpenFileName(
-                self, "Video für Auflösungs-Analyse wählen",
-                "", "Videos (*.mp4 *.mkv *.mov *.avi);;Alle Dateien (*)")
+                self, "Choose a video for resolution analysis",
+                "", "Videos (*.mp4 *.mkv *.mov *.avi);;All files (*)")
             if not path:
                 return
 
-            self.log(f"📐 Auflösungs-Analyse startet: {path}")
-            self.log("   (experimentell — Schärfefilter/Rekonstruktion "
-                     "können das Ergebnis verfälschen)")
+            self.log(f"📐 Resolution analysis starting: {path}")
+            self.log("   (experimental - sharpening filters and temporal "
+                     "reconstruction can distort the result)")
 
             class _ResProbeWorker(QThread):
                 done = pyqtSignal(str)
@@ -902,26 +901,26 @@ class FPSAnalyzer(QMainWindow):
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
-                        w.done.emit(f"❌ Analyse fehlgeschlagen: {e}")
+                        w.done.emit(f"❌ Analysis failed: {e}")
 
             self._res_probe_worker = _ResProbeWorker(path)
             self._res_probe_worker.prog.connect(
-                lambda i, n: self.log(f"📐 Messe Frame {i}/{n}...")
+                lambda i, n: self.log(f"📐 Measuring frame {i}/{n}...")
                 if i % 10 == 0 else None)
 
             def _on_done(report):
-                print(report)          # volle Tabelle in die Konsole
+                print(report)          # the full table to the console
                 for line in report.split("\n")[:8]:
-                    self.log(line)     # Zusammenfassung ins UI-Log
+                    self.log(line)     # summary into the UI log
                 summary = "\n".join(report.split("\n")[:8])
                 QMessageBox.information(
-                    self, "Auflösungs-Analyse (experimentell)",
-                    summary + "\n\n(Vollständige Einzelwerte in der Konsole)")
+                    self, "Resolution analysis (experimental)",
+                    summary + "\n\n(Full per-frame values in the console)")
 
             self._res_probe_worker.done.connect(_on_done)
             self._res_probe_worker.start()
         except Exception as e:
-            self.log(f"❌ Auflösungs-Analyse: {e}")
+            self.log(f"❌ Resolution analysis: {e}")
 
             QMessageBox.warning(self, 'Batch Processor Error', 
                                f'Could not open Batch Processor:\n{str(e)}\n\nPlease check that batch_processor.py is available.')
@@ -1020,11 +1019,10 @@ class FPSAnalyzer(QMainWindow):
     def refresh_current_frame(self):
 
         """Refresh currently displayed frame"""
-        # Aus dem zwischengespeicherten Frame neu zeichnen. Vorher wurde hier
-        # aus video_cap gelesen — das steht seit dem Hintergrund-Scrubbing
-        # nicht mehr auf der angezeigten Position, sodass bei jedem
-        # Fenster-Resize ein falscher Frame erschien. Nebeneffekt: Neuzeichnen
-        # kostet jetzt gar keinen Decode mehr.
+        # Redraw from the cached frame. This used to read from video_cap, which
+        # since the background scrubbing no longer sits on the displayed
+        # position, so every redraw showed the wrong frame. Drawing from the
+        # cache is also correct for a resize and now costs no decode at all.
         cached = getattr(self, '_last_preview_frame', None)
         if cached is not None:
             self.display_frame(cached)
@@ -1057,11 +1055,11 @@ class FPSAnalyzer(QMainWindow):
             is_enabled = self.cuda_action.isChecked()
             self.use_cuda_checkbox.setChecked(is_enabled)
         elif hasattr(self, 'use_cuda_checkbox'):
-            # Toggle direkt die Checkbox wenn keine Action existiert
+            # Toggle the checkbox directly when no action exists
             current = self.use_cuda_checkbox.isChecked()
             self.use_cuda_checkbox.setChecked(not current)
         
-        # Settings speichern damit CUDA beim nächsten Start aktiv bleibt
+        # Save settings so CUDA stays enabled on the next start
         self.save_current_settings()
         
         # Status im Log anzeigen
@@ -1077,24 +1075,24 @@ class FPSAnalyzer(QMainWindow):
     # ===== PNG ALPHA SEQUENCE EXPORT =====
 
     def export_png_alpha_sequence(self):
-        """🎬 Export PNG Alpha Sequence für Premiere Pro - NEUE SIMPLE VERSION"""
+        """🎬 Export a PNG alpha sequence for Premiere Pro - NEW SIMPLE VERSION"""
         try:
             # Den neuen einfachen Exporter importieren
             from png_overlay_exporter import export_png_overlay_sequence
             
-            # Einfach die Funktion aufrufen - sie kümmert sich um alles
+            # Just call the function - it takes care of everything
             export_png_overlay_sequence(self)
             
-            self.log("🎬 PNG Overlay Exporter geöffnet")
+            self.log("🎬 PNG Overlay Exporter opened")
             
         except ImportError as e:
-            self.log(f"❌ PNG Export nicht verfügbar: {e}")
+            self.log(f"❌ PNG export not available: {e}")
             QMessageBox.warning(self, 'Export Error', 
-                f'PNG Overlay Export nicht verfügbar:\n{str(e)}\n\n'
-                'Bitte stellen Sie sicher, dass png_overlay_exporter.py vorhanden ist.')
+                f'PNG overlay export is not available:\n{str(e)}\n\n'
+                'Please make sure png_overlay_exporter.py is present.')
         except Exception as e:
-            self.log(f"❌ PNG Export Fehler: {e}")
-            QMessageBox.warning(self, 'Export Error', f'PNG Export Fehler:\n{str(e)}')
+            self.log(f"❌ PNG export error: {e}")
+            QMessageBox.warning(self, 'Export Error', f'PNG export error:\n{str(e)}')
 
     def on_png_export_progress(self, progress, message):
         """Handle PNG export progress"""
@@ -1302,13 +1300,13 @@ class FPSAnalyzer(QMainWindow):
         if file_path:
             self.output_edit.setText(file_path)
     def load_video_for_preview(self, file_path):
-        """Load video for preview - ERWEITERT mit Segment Support"""
+        """Load video for preview - EXTENDED with segment support"""
 
         try:
 
             self.log(f"📹 Loading video: {os.path.basename(file_path)}")
-            # Laufenden Vorschau-Thread des alten Videos beenden, bevor das
-            # Capture freigegeben wird
+            # Stop the running preview thread of the previous video before the
+            # capture is released
             if getattr(self, 'preview_seeker', None) is not None:
                 try:
                     self.preview_seeker.stop()
@@ -1353,9 +1351,9 @@ class FPSAnalyzer(QMainWindow):
                 raise ValueError("Could not open video file")
             frame_count = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            # Absichern: total_frames/video_fps werden oben nur gesetzt, wenn
-            # die Video-Info gelesen werden konnte. Die Zeitanzeige braucht
-            # beide Werte, deshalb hier notfalls aus dem Capture nachziehen.
+            # Safety net: total_frames/video_fps are only set above when the
+            # video info could be read. The time display needs both values, so
+            # pull them from the capture here if necessary.
             if not getattr(self, 'total_frames', 0):
                 self.total_frames = frame_count
             if not getattr(self, 'video_fps', 0):
@@ -1367,7 +1365,7 @@ class FPSAnalyzer(QMainWindow):
             self.timeline_slider.setValue(0)
             self.update_timeline_time(0)
 
-            # Vorschau-Thread für dieses Video starten
+            # Start the preview thread for this video
             self.preview_seeker = PreviewSeeker(file_path, self)
             self.preview_seeker.frameReady.connect(self.on_preview_frame)
             self.preview_seeker.start()
@@ -1420,13 +1418,13 @@ class FPSAnalyzer(QMainWindow):
             return None
     def current_preview_frame(self):
         """
-        Aktuell gewählte Frame-Position.
+        The currently selected frame position.
 
-        Einzige Quelle der Wahrheit ist der Timeline-Slider, NICHT
-        `video_cap.get(CAP_PROP_POS_FRAMES)`. Seit das Scrubben im
-        Hintergrund läuft, wird das Haupt-Capture beim Klicken bewusst nicht
-        mehr bewegt — es steht dann noch auf der alten Position. Wer von dort
-        liest, bekommt einen veralteten Wert (typisch: 0), und darauf ist die
+        The single source of truth is the timeline slider, NOT
+        `video_cap.get(CAP_PROP_POS_FRAMES)`. Since scrubbing runs in the
+        background, the main capture is deliberately no longer moved on a
+        click - it then still sits at the old position. Reading from there
+        gives a stale value (typically 0), and segment selection depended on
         Segment-Auswahl hereingefallen.
         """
         try:
@@ -1442,8 +1440,8 @@ class FPSAnalyzer(QMainWindow):
         """Display frame with dynamic scaling and aspect ratio preservation"""
 
         try:
-            # Für Neuzeichnen (z.B. Fenstergröße) merken — spart einen
-            # kompletten Seek, der sonst je Resize-Event anfiele.
+            # Remember it for redraws (e.g. a window resize) - this saves a
+            # full seek that would otherwise happen on every resize event.
             self._last_preview_frame = frame
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -1476,9 +1474,9 @@ class FPSAnalyzer(QMainWindow):
             self.playback_timer.stop()
             self.play_button.setText('▶️ Play')
         else:
-            # Beim Scrubben wird die Position des Haupt-Captures bewusst NICHT
-            # gesetzt (das ist der teure Seek). Hier ist er unvermeidbar, aber
-            # er fällt nur einmal beim Start der Wiedergabe an.
+            # While scrubbing, the main capture's position is deliberately NOT
+            # set (that is the expensive seek). Here it is unavoidable, but it
+            # only happens once, when playback starts.
             _pend = getattr(self, '_pending_seek_frame', None)
             if _pend is not None:
                 self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, _pend)
@@ -1506,8 +1504,8 @@ class FPSAnalyzer(QMainWindow):
             self.toggle_playback()
     def update_timeline_time(self, frame_number=None):
         """
-        Zeitanzeige neben der Timeline aktualisieren:
-        Position / Gesamtlänge sowie die Framenummer.
+        Update the time display next to the timeline:
+        position / total length, plus the frame number.
         """
         lbl = getattr(self, 'timeline_time_label', None)
         if lbl is None:
@@ -1531,35 +1529,34 @@ class FPSAnalyzer(QMainWindow):
     def scrub_video(self, frame_number):
 
         """
-        Vorschau an eine Position setzen — ohne den UI-Thread zu blockieren.
+        Move the preview to a position - without blocking the UI thread.
 
-        Die Zeitanzeige wird sofort aktualisiert (kostet nichts), das
-        eigentliche Suchen übernimmt der PreviewSeeker im Hintergrund.
-        Die Position des Haupt-Captures wird NICHT hier gesetzt: genau das
-        war der teure Teil. Sie wird erst nachgezogen, wenn die Wiedergabe
-        gestartet wird (siehe toggle_playback).
+        The time display is updated immediately (that costs nothing), while the
+        actual seeking is handled by the PreviewSeeker in the background. The
+        main capture's position is NOT set here: that was the expensive part.
+        It is only brought along once playback starts (see toggle_playback).
         """
         self._pending_seek_frame = int(frame_number)
         self.update_timeline_time(frame_number)
         if getattr(self, 'preview_seeker', None) is not None:
             self.preview_seeker.request(frame_number)
         elif self.video_cap:
-            # Fallback, falls der Seeker nicht laufen sollte
+            # Fallback in case the seeker is not running
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = self.video_cap.read()
             if ret:
                 self.display_frame(frame)
 
     def on_preview_frame(self, frame_number, frame):
-        """Ergebnis des Hintergrund-Seeks anzeigen (läuft im UI-Thread)."""
+        """Show the result of the background seek (runs on the UI thread)."""
         try:
             self.display_frame(frame)
         except Exception as e:
-            print(f"⚠️ Vorschau konnte nicht angezeigt werden: {e}")
+            print(f"⚠️ Could not display the preview: {e}")
     # ===== FPS ANALYSIS =====
 
     def toggle_analysis(self):
-        """Start or stop FPS analysis - ERWEITERT mit Segment Support"""
+        """Start or stop FPS analysis - EXTENDED with segment support"""
 
         if self.analysis_worker and self.analysis_worker.isRunning():
 
@@ -1672,16 +1669,16 @@ class FPSAnalyzer(QMainWindow):
             self.log("🚀 Starting full analysis...")
         self.analysis_worker.start()
     def encode_from_data(self):
-        """Lädt gespeicherte Analyse-Daten (.fpsdata) und encodet OHNE Neuanalyse."""
+        """Load saved analysis data (.fpsdata) and encode WITHOUT re-analysing."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json, os
 
         if self.analysis_worker and self.analysis_worker.isRunning():
-            QMessageBox.warning(self, "Läuft bereits", "Es läuft bereits eine Analyse.")
+            QMessageBox.warning(self, "Already running", "An analysis is already running.")
             return
 
         data_path, _ = QFileDialog.getOpenFileName(
-            self, "Analyse-Daten laden", "", "FPS-Daten (*.fpsdata)")
+            self, "Load analysis data", "", "FPS data (*.fpsdata)")
         if not data_path:
             return
 
@@ -1689,17 +1686,17 @@ class FPSAnalyzer(QMainWindow):
             with open(data_path, encoding='utf-8') as f:
                 data = json.load(f)
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Daten konnten nicht gelesen werden:\n{e}")
+            QMessageBox.warning(self, "Error", f"Could not read the data:\n{e}")
             return
 
         source_video = data.get('source_video')
         if not source_video or not os.path.exists(source_video):
-            # Original-Video manuell wählen falls Pfad nicht stimmt
-            QMessageBox.information(self, "Video wählen",
-                "Das Originalvideo aus den Daten wurde nicht gefunden.\n"
-                "Bitte wähle es manuell aus.")
+            # Choose the original video by hand if the path does not match
+            QMessageBox.information(self, "Choose a video",
+                "The original video referenced in the data was not found.\n"
+                "Please select it manually.")
             source_video, _ = QFileDialog.getOpenFileName(
-                self, "Originalvideo wählen", "", "Video (*.mp4 *.mkv *.avi *.mov)")
+                self, "Choose the original video", "", "Video (*.mp4 *.mkv *.avi *.mov)")
             if not source_video:
                 return
 
@@ -1710,7 +1707,7 @@ class FPSAnalyzer(QMainWindow):
 
         settings = self.get_current_settings()
         settings['load_analysis_data'] = data_path
-        settings['save_analysis_data'] = False   # nicht erneut speichern
+        settings['save_analysis_data'] = False   # do not save it again
 
         self.analysis_worker = AnalysisWorker(source_video, output_file, settings)
         self.analysis_worker.progress_update.connect(self.on_progress_update)
@@ -1724,7 +1721,7 @@ class FPSAnalyzer(QMainWindow):
         )
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.log(f"📂 Encode aus Analyse-Daten: {os.path.basename(data_path)} (keine Neuanalyse)")
+        self.log(f"📂 Encode from analysis data: {os.path.basename(data_path)} (no re-analysis)")
         self.analysis_worker.start()
 
     def on_progress_update(self, progress, message):

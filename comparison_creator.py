@@ -1,5 +1,5 @@
 """
-Video Comparison Creator für FPS Analyzer - PNG TEMPLATE VERSION
+Video Comparison Creator for FPS Analyzer - PNG TEMPLATE VERSION
 Creates side-by-side comparison videos with PNG template support
 Passes through the same FPS graph template as the main video
 """
@@ -125,7 +125,7 @@ class ComparisonWorker(QThread):
             output_a = os.path.join(self.output_dir, f"{self.video_a_name}_comparison_left_{resolution_name}.mp4")
             output_b = os.path.join(self.output_dir, f"{self.video_b_name}_comparison_right_{resolution_name}.mp4")
             
-            # Update settings for comparison mode — je Video die eigene Farbe
+            # Update settings for comparison mode - each video keeps its own colour
             def _bgr_to_hex(bgr):
                 try:
                     b, g, r = int(bgr[0]), int(bgr[1]), int(bgr[2])
@@ -310,7 +310,7 @@ class ComparisonCreatorDialog(QDialog):
             # Color picker button (line + FPS number color for this video)
             color_btn = QPushButton()
             color_btn.setFixedSize(28, 28)
-            color_btn.setToolTip(f"Linien-/FPS-Farbe für Video {label}")
+            color_btn.setToolTip(f"Line / FPS colour for video {label}")
             qc = QColor(default_color[2], default_color[1], default_color[0])  # BGR → RGB
             color_btn.setStyleSheet(f"background-color: {qc.name()}; border: 1px solid #555;")
             setattr(self, f"_color_{label.lower()}", list(default_color))  # store BGR
@@ -447,11 +447,11 @@ class ComparisonCreatorDialog(QDialog):
         layout.addWidget(self.export_png_checkbox, 3, 0, 1, 3)
 
         # Combined side-by-side output
-        self.combined_checkbox = QCheckBox("📊 Combined Side-by-Side Output  (ein Video · geteilter FPS-Graph)")
+        self.combined_checkbox = QCheckBox("📊 Combined Side-by-Side Output  (one video · shared FPS graph)")
         self.combined_checkbox.setChecked(True)
         self.combined_checkbox.setToolTip(
-            "Erstellt EIN Video: beide Videos nebeneinander,\n"
-            "darunter ein gemeinsamer Frame-Rate-Graph mit zwei Linien."
+            "Creates ONE video: both clips side by side,\n"
+            "with a shared frame-rate graph carrying two lines below them."
         )
         layout.addWidget(self.combined_checkbox, 4, 0, 1, 3)
 
@@ -741,7 +741,7 @@ class ComparisonCreatorDialog(QDialog):
             'viewport_b': getattr(self, 'viewport_b_slider', None) and self.viewport_b_slider.value() / 100.0 or 0.5,
             'color_a': getattr(self, '_color_a', [220, 120, 50]),
             'color_b': getattr(self, '_color_b', [50, 140, 255]),
-            # Milchglas-Effekt + kompletter Overlay-Style aus dem Layout Editor
+            # Frosted-glass effect + the full overlay style from the Layout Editor
             'frosted_glass': getattr(self.parent_analyzer, 'overlay_style', {}).get('frosted_glass', False),
             'frost_blur': getattr(self.parent_analyzer, 'overlay_style', {}).get('frost_blur', 25),
             'frost_darken': getattr(self.parent_analyzer, 'overlay_style', {}).get('frost_darken', 0.35),
@@ -752,8 +752,8 @@ class ComparisonCreatorDialog(QDialog):
         video_a_name = self.video_a_name_edit.text().strip() or "Video_A"
         video_b_name = self.video_b_name_edit.text().strip() or "Video_B"
         
-        # Debug output HIER EINFÜGEN
-        print(f"🔍 DEBUG: settings hat template_config: {'template_config' in settings}")
+        # Debug output goes HERE
+        print(f"🔍 DEBUG: settings has template_config: {'template_config' in settings}")
         print(f"🔍 DEBUG: template_config inhalt: {settings.get('template_config')}")
         print(f"🔍 DEBUG: diff_threshold = {settings.get('diff_threshold')} (from sensitivity_combo)")
 
@@ -819,7 +819,7 @@ class ComparisonCreatorDialog(QDialog):
             self.progress_b.setVisible(False)
             self.preview_display.setText("⏹️ Cancelled")
             
-            # Warte kurz auf sauberes Ende
+            # Wait briefly for a clean shutdown
             QTimer.singleShot(2000, self.check_cancel_complete)
 
     def check_cancel_complete(self):
@@ -884,7 +884,7 @@ class ComparisonCreatorDialog(QDialog):
             self.preview_display.setText("✅ Comparison\nCompleted")
             QMessageBox.information(self, 'Comparison Complete', message)
         else:
-            # Unterscheide zwischen Cancel und Error
+            # Tell cancel and error apart
             if "cancel" in message.lower():
                 self.log("⏹️ Comparison cancelled by user")
                 self.preview_display.setText("⏹️ Cancelled")

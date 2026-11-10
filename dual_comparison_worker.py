@@ -1,18 +1,19 @@
 """
-Dual Comparison Worker — kombiniertes Side-by-Side Video mit geteiltem FPS-Graph.
+Dual Comparison Worker - combined side-by-side video with a shared FPS graph.
 
 Pipeline:
-  1. Analysiere Video A  → per-frame fps_a[], ft_a[], decoded_frames_a[]  (RAM)
-  2. Analysiere Video B  → per-frame fps_b[], ft_b[], decoded_frames_b[]  (RAM)
+  1. Analyse video A  -> per-frame fps_a[], ft_a[], decoded_frames_a[]  (RAM)
+  2. Analyse video B  -> per-frame fps_b[], ft_b[], decoded_frames_b[]  (RAM)
   3. Render combined:
        - left  = crop/resize frame_a[i]
        - right = crop/resize frame_b[i]
-       - graph = dual FPS graph (Linie A + Linie B, volle Breite)
+       - graph = dual FPS graph (line A + line B, full width)
        - encode(hstack(left, right) + graph)
 
-Speicherbedarf: ~2 × video_frames × frame_bytes
-  4K 60fps 60s = 2 × 3600 × 24MB = nicht machbar → Frame-by-Frame statt RAM-Puffer.
-  Stattdessen: Analyse-Pass (nur FPS-Daten) + Render-Pass (liest Video erneut).
+Memory: ~2 x video_frames x frame_bytes
+4K 60fps 60s = 2 x 3600 x 24MB is not feasible, so this works frame by frame
+instead of buffering in RAM: an analysis pass (FPS data only) followed by a
+render pass that reads the videos again.
 """
 
 import os
@@ -144,7 +145,7 @@ class VideoAnalyzer:
         diff_threshold   = self.settings.get('diff_threshold', 0.005)
         window_size      = max(1, int(self.source_fps))
 
-        # Tile-basierte Erkennung mit adaptivem Threshold (siehe frame_detection.py)
+        # Tile-based detection with an adaptive threshold (see frame_detection.py)
         from frame_detection import TileAdaptiveDetector
         detector = TileAdaptiveDetector(diff_threshold)
 
@@ -217,15 +218,16 @@ def render_dual_fps_graph(
 ) -> np.ndarray:
     """
     Draw dual FPS graph on overlay at (gx, gy, gw, gh).
-    playhead_index gesetzt → DF-Stil: fps_a/fps_b sind die VOLLEN Sequenzen,
-    Fenster zentriert auf playhead_index (links Vergangenheit, rechts Zukunft,
-    Mittellinie markiert). Sonst rollendes Fenster (letzte MAX_POINTS).
+    With playhead_index set, this draws DF style: fps_a/fps_b are the FULL
+    sequences and the window is centred on playhead_index (past on the left,
+    future on the right, centre line marked). Otherwise it is a rolling window
+    over the last MAX_POINTS.
     """
     h, w = overlay.shape[:2]
     n_sections = 4
     MAX_POINTS = 180
 
-    # Background — Milchglas-Effekt oder Solid-Fill
+    # Background - frosted glass or solid fill
     x1, y1, x2, y2 = gx, gy, min(gx + gw, w), min(gy + gh, h)
     if frosted:
         try:
@@ -241,8 +243,8 @@ def render_dual_fps_graph(
         alpha = bg_alpha
         overlay[y1:y2, x1:x2] = (roi * (1 - alpha) + bg * alpha).astype(np.uint8)
 
-    # (Rahmen wird NACH den Linien gezeichnet — siehe unten — damit er den
-    #  Linienstart/-überstand kaschiert, wie in der Hauptanalyse.)
+    # (The border is drawn AFTER the lines - see below - so it hides where the
+    #  lines start and overshoot, same as in the main analysis.)
 
     # Grid lines
     line_t = max(1, gh // 150)
@@ -279,14 +281,14 @@ def render_dual_fps_graph(
             return
         s4k_l = h / 2160.0
         line_x0  = gx + max(1, int(4 * s4k_l))
-        # Linie endet an der rechten Graphkante (minus kleiner Rand), NICHT
-        # darüber hinaus — wie in der Hauptanalyse.
+        # The line ends at the right edge of the graph (minus a small margin),
+        # NOT beyond it - same as in the main analysis.
         line_end = gx + gw - max(2, int(5 * s4k_l))
         line_w   = line_end - line_x0
         top_pad  = max(3, int(10 * s4k_l))
 
         if playhead_index is not None:
-            # DF-Stil: zentriertes Fenster über die volle Sequenz
+            # DF style: a centred window over the full sequence
             half = MAX_POINTS // 2
             total = 2 * half + 1
             raw = np.full(total, np.nan, dtype=np.float32)
@@ -306,7 +308,7 @@ def render_dual_fps_graph(
             vals = np.clip(safe / max(max_fps, 1), 0.0, 1.0)
             py_arr = np.clip((gy + top_pad + (1.0 - vals) * (gh - top_pad)).astype(np.int32),
                              gy, gy + gh - 1)
-            # Segmentweise zeichnen (Lücken an ungültigen Stellen)
+            # Draw segment by segment (gaps where values are invalid)
             sx, sy = [], []
             for k in range(total):
                 if valid[k]:
@@ -345,8 +347,8 @@ def render_dual_fps_graph(
         overlay[gy:gy+gh, max(0, cx-pth//2):cx+pth//2+1] = \
             (roi_ph * 0.25 + np.full_like(roi_ph, 255) * 0.75).astype(np.uint8)
 
-    # White outline — ZULETZT gezeichnet, ÜBER den Linien, damit der
-    # Linienstart/-überstand am Rand kaschiert wird. 1px dicker als vorher.
+    # White outline - drawn LAST, ON TOP of the lines, so the line start and
+    # overshoot at the edge are hidden. 1px thicker than before.
     ot = max(2, gh // 100) + 1
     for i, coords in enumerate([
         (gx, gy, gx + gw, gy + ot),
@@ -440,8 +442,8 @@ def render_combined_video(
     history_b: collections.deque = collections.deque(maxlen=MAX_POINTS)
     max_fps = max(max(fps_a, default=60), max(fps_b, default=60), 60.0)
 
-    # Angezeigte FPS-Zahl geglättet wie in der Haupt-Analyse:
-    # Viertel-Sekunden-Fenster, gerundet — statt roher per-Frame-Werte
+    # The displayed FPS number is smoothed as in the main analysis:
+    # Quarter-second window, rounded - instead of raw per-frame values
     disp_win = max(1, int(source_fps // 4))
     disp_buf_a: collections.deque = collections.deque(maxlen=disp_win)
     disp_buf_b: collections.deque = collections.deque(maxlen=disp_win)
@@ -498,15 +500,15 @@ def render_combined_video(
             history_a.append(cur_fps_a)
             history_b.append(cur_fps_b)
 
-            # Anzeige-Glättung: gemittelt über disp_win, gerundet
+            # Display smoothing: averaged over disp_win, then rounded
             disp_buf_a.append(cur_fps_a)
             disp_buf_b.append(cur_fps_b)
             displayed_a = round(sum(disp_buf_a) / len(disp_buf_a))
             displayed_b = round(sum(disp_buf_b) / len(disp_buf_b))
 
             # Graph-Linien gehen via cv2.polylines DIREKT aufs RGB-Canvas
-            # (keine interne Farb-Umkehr wie bei _draw_text_bebas) → hier die
-            # BGR-Farben nach RGB drehen, sonst erscheinen A/B vertauscht.
+            # (no internal colour swap like _draw_text_bebas does) so the BGR
+            # colours are turned into RGB here, or A/B would look swapped.
             color_a_rgb = (int(color_a[2]), int(color_a[1]), int(color_a[0]))
             color_b_rgb = (int(color_b[2]), int(color_b[1]), int(color_b[0]))
 
@@ -550,7 +552,7 @@ def render_combined_video(
     writer.release()
 
     # Re-encode with ffmpeg for proper mp4 container + bitrate
-    # NVENC (RTX GPU) zuerst, libx264 als Fallback
+    # NVENC (RTX GPU) first, libx264 as the fallback
     try:
         import subprocess
         tmp = output_path + '_tmp.mp4'
@@ -564,7 +566,7 @@ def render_combined_video(
             capture_output=True, timeout=600
         )
         if result.returncode != 0:
-            print("⚠️ NVENC nicht verfügbar, fallback auf libx264")
+            print("⚠️ NVENC not available, falling back to libx264")
             result = subprocess.run(
                 ['ffmpeg', '-y', '-i', tmp,
                  '-c:v', 'libx264', '-b:v', br, '-preset', 'fast',
@@ -640,12 +642,12 @@ class DualComparisonWorker(QThread):
         bitrate      = settings.get('bitrate', 50)
         threshold    = settings.get('diff_threshold', 0.005)
 
-        # ── Phase 1: Analyse Video A ──────────────────────────────────────────
-        self.progress.emit("Analyse", 0, f"🔍 Analysiere {self.name_a}...")
+        # ── Phase 1: analyse video A ──────────────────────────────────────────
+        self.progress.emit("Analysis", 0, f"🔍 Analysing {self.name_a}...")
 
         def prog_a(f, t):
             pct = int(f / max(t, 1) * 40)   # 0-40%
-            self.progress.emit("Analyse", pct, f"Analysiere {self.name_a}: {f}/{t}")
+            self.progress.emit("Analysis", pct, f"Analysing {self.name_a}: {f}/{t}")
 
         analyzer_a = VideoAnalyzer(
             self.path_a,
@@ -654,17 +656,17 @@ class DualComparisonWorker(QThread):
             cancel_check=lambda: self._cancelled,
         )
         if not analyzer_a.analyze() or self._cancelled:
-            self.finished.emit(False, "❌ Analyse Video A fehlgeschlagen oder abgebrochen")
+            self.finished.emit(False, "❌ Analysis of video A failed or was cancelled")
             return
 
-        self.progress.emit("Analyse", 40, f"✅ {self.name_a} analysiert ({len(analyzer_a.fps_per_frame)} Frames)")
+        self.progress.emit("Analysis", 40, f"✅ {self.name_a} analysed ({len(analyzer_a.fps_per_frame)} frames)")
 
-        # ── Phase 2: Analyse Video B ──────────────────────────────────────────
-        self.progress.emit("Analyse", 40, f"🔍 Analysiere {self.name_b}...")
+        # ── Phase 2: analyse video B ──────────────────────────────────────────
+        self.progress.emit("Analysis", 40, f"🔍 Analysing {self.name_b}...")
 
         def prog_b(f, t):
             pct = 40 + int(f / max(t, 1) * 40)   # 40-80%
-            self.progress.emit("Analyse", pct, f"Analysiere {self.name_b}: {f}/{t}")
+            self.progress.emit("Analysis", pct, f"Analysing {self.name_b}: {f}/{t}")
 
         analyzer_b = VideoAnalyzer(
             self.path_b,
@@ -673,10 +675,10 @@ class DualComparisonWorker(QThread):
             cancel_check=lambda: self._cancelled,
         )
         if not analyzer_b.analyze() or self._cancelled:
-            self.finished.emit(False, "❌ Analyse Video B fehlgeschlagen oder abgebrochen")
+            self.finished.emit(False, "❌ Analysis of video B failed or was cancelled")
             return
 
-        self.progress.emit("Analyse", 80, f"✅ {self.name_b} analysiert ({len(analyzer_b.fps_per_frame)} Frames)")
+        self.progress.emit("Analysis", 80, f"✅ {self.name_b} analysed ({len(analyzer_b.fps_per_frame)} frames)")
 
         # ── Phase 3: Render ───────────────────────────────────────────────────
         out_name = f"{self.name_a}_vs_{self.name_b}_comparison.mp4"
@@ -738,4 +740,4 @@ class DualComparisonWorker(QThread):
             )
             self.finished.emit(True, msg)
         else:
-            self.finished.emit(False, f"❌ Ausgabedatei konnte nicht erstellt werden:\n{output_path}")
+            self.finished.emit(False, f"❌ Could not create the output file:\n{output_path}")

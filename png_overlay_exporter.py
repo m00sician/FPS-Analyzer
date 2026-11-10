@@ -1,11 +1,11 @@
 """
-PNG Overlay Exporter für FPS Analyzer
-Exportiert eine transparente PNG-Sequenz des Overlays.
+PNG Overlay Exporter for FPS Analyzer
+Exports a transparent PNG sequence of the overlay.
 
-Basiert komplett auf dem aktuellen analysis_worker.py Loop —
-gleiche PairDiff-Erkennung, gleiche FPS-Berechnung, gleiche Render-Pipeline.
-Einziger Unterschied: Output ist PNG statt MP4, gerendert auf schwarzem Canvas
-mit Alpha-Extraktion statt Video-Encoding.
+Built entirely on the current analysis_worker.py loop - same PairDiff
+detection, same FPS computation, same render pipeline. The only difference
+is the output: PNG instead of MP4, rendered onto a black canvas and alpha
+extracted instead of video encoded.
 """
 import os
 import shutil
@@ -25,13 +25,13 @@ from analysis_worker import (AnalysisWorker, AsyncFrameReader,
 
 class PNGExportWorker(AnalysisWorker):
     """
-    PNG-Export Worker — erbt die komplette Analyse-Engine von AnalysisWorker.
-    Überschreibt nur den Output-Teil: statt in einen VideoWriter zu schreiben,
-    wird jeder fertige Frame als RGBA-PNG in einen Unterordner gespeichert.
+    PNG export worker - inherits the whole analysis engine from AnalysisWorker.
+    It only overrides the output side: instead of writing to a VideoWriter,
+    every finished frame is saved as an RGBA PNG in a subfolder.
     """
 
     def __init__(self, input_file, output_dir, settings):
-        # Parent braucht einen output_file Pfad — wir geben einen Dummy
+        # The parent needs an output_file path, so pass a dummy one
         fake_output = os.path.join(output_dir, "_dummy.mp4")
         super().__init__(input_file, fake_output, settings)
         self.png_output_dir = output_dir
@@ -75,19 +75,19 @@ class PNGExportWorker(AnalysisWorker):
     @staticmethod
     def _extract_alpha(overlay_rgb: np.ndarray) -> np.ndarray:
         """
-        Konvertiert ein RGB-Overlay (auf schwarzem Hintergrund gerendert)
-        zu RGBA mit korrektem Alpha-Kanal.
+        Converts an RGB overlay (rendered on a black background) into RGBA
+        with a correct alpha channel.
 
-        Schwarz (0,0,0) → vollständig transparent.
-        Alles andere → opak, proportional zur Helligkeit.
+        Black (0,0,0) -> fully transparent.
+        Everything else -> opaque, proportional to brightness.
 
-        Das ist korrekt weil der Renderer auf einem schwarzen Canvas arbeitet
-        und nur die eigentlichen Overlay-Elemente zeichnet.
+        This is correct because the renderer works on a black canvas and
+        draws nothing but the overlay elements themselves.
         """
         gray = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2GRAY)
         rgba = np.zeros((*overlay_rgb.shape[:2], 4), dtype=np.uint8)
         rgba[:, :, :3] = overlay_rgb
-        # Alpha proportional zur Helligkeit — reine schwarze Pixel = 0
+        # Alpha proportional to brightness - pure black pixels = 0
         rgba[:, :, 3] = gray
         return rgba
 
@@ -97,17 +97,17 @@ class PNGExportWorker(AnalysisWorker):
 
     def analyze_video(self):
         """
-        Identischer Loop wie AnalysisWorker.analyze_video, aber:
-        - Kein VideoWriter
-        - Rendert auf schwarzem Canvas statt auf dem Video-Frame
-        - Extrahiert Alpha und speichert als PNG
+        The same loop as AnalysisWorker.analyze_video, but:
+        - no VideoWriter
+        - renders onto a black canvas instead of onto the video frame
+        - extracts alpha and saves a PNG
         """
         try:
             print("🎬 PNG Export: Starting...")
             self._start_png_workers(n=min(4, os.cpu_count() or 4))
             print(f"🚀 PNG Export: {len(self._png_workers)} worker threads started")
 
-            # --- Video öffnen ---
+            # --- Open the video ---
             cap = cv2.VideoCapture(self.input_file)
             if not cap.isOpened():
                 raise ValueError(f"Could not open video: {self.input_file}")
@@ -128,11 +128,11 @@ class PNGExportWorker(AnalysisWorker):
             initial_fps  = float(baseline_fps) if baseline_fps > 0 else source_fps
             initial_ft   = 1000.0 / initial_fps if initial_fps > 0 else 33.33
 
-            # --- Auflösung ---
+            # --- Resolution ---
             target_width, target_height = self.settings.get('resolution', (1920, 1080))
             print(f"🎯 Target: {target_width}x{target_height}")
 
-            # --- Analyse-Variablen (identisch mit analyze_video) ---
+            # --- Analysis variables (identical to analyze_video) ---
             fps_history  = collections.deque(maxlen=1000)
             frame_times  = collections.deque(maxlen=180)
             for _ in range(60):
@@ -153,7 +153,7 @@ class PNGExportWorker(AnalysisWorker):
             frame_count          = 0
             current_frame_number = actual_start
 
-            # --- Overlay-Einstellungen (einmalig lesen) ---
+            # --- Overlay settings (read once) ---
             show_frametime  = self.settings.get('show_frametime', True)
             frametime_scale = self.settings.get('frametime_scale', {
                 'min': 16.7, 'mid': 33.3, 'max': 50.0,
@@ -179,13 +179,13 @@ class PNGExportWorker(AnalysisWorker):
                 if not ret:
                     break
 
-                # Resize für Overlay-Dimensionen
+                # Resize to the overlay dimensions
                 frame_processed = resize_with_aspect_ratio(frame, target_width, target_height)
 
-                # Graustufen für Duplikat-Erkennung
+                # Greyscale for duplicate detection
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # PairDiff-Erkennung (aus AnalysisWorker)
+                # PairDiff detection (from AnalysisWorker)
                 is_duplicate = self.is_frame_duplicate_corrected(gray, prev_frame_gray)
                 self.detection_window.append(not is_duplicate)
 
@@ -227,7 +227,7 @@ class PNGExportWorker(AnalysisWorker):
                 if frame_count <= 60:
                     displayed_fps = -1
 
-                # --- Overlay auf schwarzem Canvas rendern ---
+                # --- Render the overlay onto a black canvas ---
                 black_canvas = np.zeros((target_height, target_width, 3), dtype=np.uint8)
 
                 precomputed_stats = {
@@ -242,7 +242,7 @@ class PNGExportWorker(AnalysisWorker):
                     precomputed_stats
                 )
 
-                # Alpha extrahieren und in Queue
+                # Extract alpha and queue it
                 rgba = self._extract_alpha(overlay_rgb)
                 try:
                     self._png_queue.put((frame_count, rgba), timeout=5.0)
@@ -311,8 +311,8 @@ class PNGExportDialog(QDialog):
             "font-weight: bold; font-size: 15px; padding: 8px;"
         ))
         layout.addWidget(self._label(
-            "Exportiert eine transparente PNG-Sequenz des Overlays.\n"
-            "Jedes PNG enthält nur das Overlay mit Alpha-Kanal — kein Videobild.",
+            "Exports a transparent PNG sequence of the overlay.\n"
+            "Each PNG holds only the overlay with its alpha channel - no video image.",
             "color: #aaa; padding: 6px;"
         ))
         layout.addWidget(self._label(
@@ -322,7 +322,7 @@ class PNGExportDialog(QDialog):
 
         res = self.settings.get('resolution', (1920, 1080))
         layout.addWidget(self._label(
-            f"⚙️ Auflösung: {res[0]}×{res[1]}  |  "
+            f"⚙️ Resolution: {res[0]}x{res[1]}  |  "
             f"Threads: {min(4, os.cpu_count() or 4)}",
             "color: #888; padding: 4px;"
         ))
@@ -366,7 +366,7 @@ class PNGExportDialog(QDialog):
         """)
         btn_row.addWidget(self.cancel_btn)
 
-        close_btn = QPushButton("Schließen")
+        close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
 
@@ -394,8 +394,8 @@ class PNGExportDialog(QDialog):
 
         if os.path.exists(sequence_dir):
             reply = QMessageBox.question(
-                self, "Ordner existiert",
-                f"Ordner existiert bereits:\n{sequence_dir}\n\nÜberschreiben?",
+                self, "Folder exists",
+                f"This folder already exists:\n{sequence_dir}\n\nOverwrite?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
@@ -434,25 +434,25 @@ class PNGExportDialog(QDialog):
         if success:
             self.status_label.setText("✅ Export complete")
             QMessageBox.information(
-                self, "Export erfolgreich", message + "\n\n"
-                "Import in Premiere Pro / DaVinci Resolve:\n"
-                "• Erste PNG auswählen → Image Sequence aktivieren\n"
-                "• Blend Mode: Screen oder Normal mit Alpha"
+                self, "Export successful", message + "\n\n"
+                "Importing into Premiere Pro / DaVinci Resolve:\n"
+                "• Select the first PNG -> enable Image Sequence\n"
+                "• Blend mode: Screen, or Normal with alpha"
             )
         else:
             self.status_label.setText(f"❌ {message}")
             if "cancelled" not in message.lower():
-                QMessageBox.warning(self, "Export Fehler", message)
+                QMessageBox.warning(self, "Export error", message)
 
 
 # ----------------------------------------------------------------------
-# Einstiegspunkt (wird von fps_analyzer_main.py aufgerufen)
+# Entry point (called from fps_analyzer_main.py)
 # ----------------------------------------------------------------------
 
 def export_png_overlay_sequence(parent_window):
     video_path = parent_window.input_edit.text().strip()
     if not video_path or not os.path.exists(video_path):
-        QMessageBox.warning(parent_window, "Fehler", "Bitte zuerst ein Video laden.")
+        QMessageBox.warning(parent_window, "Error", "Please load a video first.")
         return
     settings = parent_window.get_current_settings()
     dialog = PNGExportDialog(parent_window, video_path, settings)

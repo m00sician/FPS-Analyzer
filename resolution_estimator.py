@@ -1,19 +1,20 @@
 """
-Resolution Estimator (EXPERIMENTELL)
+Resolution Estimator (EXPERIMENTAL)
 
-Schätzt die interne Renderauflösung eines Videos per Frequenzanalyse:
-Ein intern mit z.B. 1440p gerendertes und auf 4K hochskaliertes Bild enthält
-keine echten Bilddetails oberhalb der 1440p-Nyquist-Frequenz. Die Abschneide-
-kante im Spektrum (pro Achse gemessen) verrät das Skalierungsverhältnis.
+Estimates a video's internal render resolution through frequency analysis:
+an image rendered internally at, say, 1440p and upscaled to 4K contains no
+real detail above the 1440p Nyquist frequency. The cut-off edge in the
+spectrum (measured per axis) reveals the scaling ratio.
 
-Grenzen (bewusst, ehrlich):
-- Temporale Rekonstruktion (DLSS/FSR2/TAAU) synthetisiert echtes Detail bis
-  zur Ausgabeauflösung — die interne Rasterauflösung ist dann aus dem Bild
-  prinzipiell nicht sauber ablesbar. Solche Frames werden als
-  "nativ/Rekonstruktion" geflaggt statt mit falscher Zahl.
-- Schärfefilter verschieben die Kante nach oben (Messung tendenziell zu hoch),
-  starker Motion Blur nach unten. Deshalb: viele Samples, zeitlicher Median.
-- HUD wird nativ gerendert → Messung nur auf Center-Crop ohne UI-Ränder.
+Limits (deliberate, stated honestly):
+- Temporal reconstruction (DLSS/FSR2/TAAU) synthesises real detail up to the
+  output resolution, so the internal raster resolution cannot be read cleanly
+  from the image at all. Such frames are flagged as
+  "native/reconstruction" instead of being given a wrong number.
+- Sharpening filters push the edge upwards (measurements read high), heavy
+  motion blur pushes it down. Hence many samples and a temporal median.
+- The HUD is rendered natively, so measurement uses a centre crop without
+  the UI edges.
 """
 
 import numpy as np
@@ -22,11 +23,11 @@ import cv2
 
 def _axis_cutoff(gray_f32, axis, drop_db=4.0):
     """
-    Spektrale Abschneidekante per TREND-ABWEICHUNG: Trendlinie aus dem
-    Tieffrequenz-Band (10-40% Nyquist) fitten; Cutoff = erste Frequenz, ab
-    der das Spektrum NACHHALTIG drop_db unter den Trend fällt (Upscaling-
-    Rolloff ist ein sanfter Bogen, keine Stufe — gemessen an Ground-Truth).
-    Kein nachhaltiger Abfall = nativ. Liefert (ratio, max_abweichung_db).
+    Spectral cut-off edge via TREND DEVIATION: fit a trend line through the
+    low-frequency band (10-40% Nyquist); the cutoff is the first frequency at
+    which the spectrum falls SUSTAINEDLY drop_db below that trend (upscaling
+    rolloff is a gentle curve, not a step - measured against ground truth).
+    No sustained drop = native. Returns (ratio, max_deviation_db).
     """
     if axis == 0:
         data = gray_f32.T
@@ -50,7 +51,7 @@ def _axis_cutoff(gray_f32, axis, drop_db=4.0):
     p_s = np.convolve(p_db, np.ones(k, dtype=np.float32) / k, mode='same')
     m = len(p_s)
 
-    # Trend aus dem Tieffrequenz-Band extrapolieren
+    # Extrapolate the trend from the low-frequency band
     b0, b1 = int(0.10 * m), int(0.40 * m)
     xs = np.arange(m, dtype=np.float32)
     coef = np.polyfit(xs[b0:b1], p_s[b0:b1], 1)
@@ -74,7 +75,7 @@ def _axis_cutoff(gray_f32, axis, drop_db=4.0):
 
 def estimate_internal_resolution(frame_bgr, crop_frac=0.5):
     """
-    Schätzt die interne Renderauflösung eines einzelnen Frames.
+    Estimates the internal render resolution of a single frame.
     crop_frac: zentraler Bildanteil (0.5 = mittlere 50% je Achse) — meidet HUD.
     Returns dict: width_est, height_est, ratio_x, ratio_y, confidence, native_or_recon
     """
@@ -85,9 +86,9 @@ def estimate_internal_resolution(frame_bgr, crop_frac=0.5):
 
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
 
-    # Detail-Metrik: Median der Zeilen-Energie im Mittelband (20-40% Nyquist).
-    # Strukturarme Frames (Flächen, wenig Textur) liefern keine belastbare
-    # Cutoff-Messung — sie werden als 'unsicher' markiert statt falsch 'nativ'.
+    # Detail metric: median row energy in the mid band (20-40% Nyquist).
+    # Frames with little structure (flat areas, little texture) give no reliable
+    # cutoff measurement - they are marked 'uncertain' rather than wrongly 'native'.
     _rows = gray - gray.mean(axis=1, keepdims=True)
     if _rows.shape[0] > 128:
         _sel = np.linspace(0, _rows.shape[0] - 1, 128).astype(np.int32)
@@ -121,7 +122,7 @@ def estimate_internal_resolution(frame_bgr, crop_frac=0.5):
 COMMON_HEIGHTS = [2160, 1800, 1620, 1440, 1296, 1080, 900, 720]
 
 def _snap_height(h_est, tol=0.06):
-    """Nächste gängige Auflösungshöhe, wenn innerhalb Toleranz."""
+    """Nearest common resolution height, if within tolerance."""
     for h in COMMON_HEIGHTS:
         if abs(h_est - h) / h <= tol:
             return h
@@ -131,12 +132,12 @@ def _snap_height(h_est, tol=0.06):
 def probe_video(path, samples=40, crop_frac=0.5, progress_cb=None,
                 cancel_check=None):
     """
-    Misst `samples` gleichmäßig verteilte Frames eines Videos.
+    Measures `samples` frames spread evenly across a video.
     Returns (results_list, report_str). results_list: Einzelmessungen.
     """
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        return [], f"❌ Video nicht lesbar: {path}"
+        return [], f"❌ Video not readable: {path}"
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -162,7 +163,7 @@ def probe_video(path, samples=40, crop_frac=0.5, progress_cb=None,
     cap.release()
 
     if not results:
-        return [], "❌ Keine Messungen möglich"
+        return [], "❌ No measurements possible"
 
     reliable = [r for r in results if not r.get('unreliable')]
     base = reliable if reliable else results
@@ -177,26 +178,26 @@ def probe_video(path, samples=40, crop_frac=0.5, progress_cb=None,
     snap = _snap_height(med_h)
 
     lines = []
-    lines.append(f"📐 AUFLÖSUNGS-ANALYSE (experimentell) — {path}")
+    lines.append(f"📐 RESOLUTION ANALYSIS (experimental) - {path}")
     lines.append(f"   Container: {w}x{h}, {len(results)} Messframes"
                  + (f" ({n_unrel} davon wenig Bilddetail → ausgeschlossen)"
                     if n_unrel else ""))
     if not reliable:
-        lines.append("   ⚠️ ALLE Frames strukturarm — Messung NICHT belastbar!")
-    lines.append(f"   Median intern: ~{med_w:.0f} x {med_h:.0f}"
-                 + (f"  → nächste gängige: {snap}p" if snap else ""))
-    lines.append(f"   Streuung (MAD Höhe): ±{mad_h:.0f}px | "
-                 f"Signalgüte: {float(np.median(confs)):.0f}dB")
-    lines.append(f"   Min/Max Höhe: {hs.min():.0f} / {hs.max():.0f}")
+        lines.append("   ⚠️ ALL frames lack structure - measurement NOT reliable!")
+    lines.append(f"   Median internal: ~{med_w:.0f} x {med_h:.0f}"
+                 + (f"  -> nearest common: {snap}p" if snap else ""))
+    lines.append(f"   Spread (MAD height): +/-{mad_h:.0f}px | "
+                 f"Signal quality: {float(np.median(confs)):.0f}dB")
+    lines.append(f"   Min/Max height: {hs.min():.0f} / {hs.max():.0f}")
     if n_native > len(base) * 0.6:
-        lines.append("   ⚠️ Mehrheit der Frames misst ~nativ — entweder echtes "
-                     "Nativ-Rendering ODER temporale Rekonstruktion (DLSS/FSR2/"
-                     "TAAU); Letztere ist aus dem Bild nicht unterscheidbar.")
+        lines.append("   ⚠️ Most frames measure ~native - either real native "
+                     "rendering OR temporal reconstruction (DLSS/FSR2/"
+                     "TAAU); the latter cannot be told apart from the image.")
     if mad_h > med_h * 0.08:
-        lines.append("   ℹ️ Hohe Streuung → Hinweis auf dynamische Auflösung (DRS)")
-    lines.append("   Einzelwerte (Frame → Breite x Höhe):")
+        lines.append("   ℹ️ High spread -> suggests dynamic resolution (DRS)")
+    lines.append("   Individual values (frame -> width x height):")
     for r in results:
-        tag = " [nativ/recon]" if r['native_or_recon'] else ""
+        tag = " [native/recon]" if r['native_or_recon'] else ""
         if r.get('unreliable'):
             tag += " [wenig Detail — unsicher]"
         lines.append(f"     {r['frame']:6d} → {r['width_est']:4d} x "

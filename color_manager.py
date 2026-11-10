@@ -1,13 +1,13 @@
 """
-Color Manager — Farb-Utilities für FPS Analyzer.
+Color Manager - colour utilities for FPS Analyzer.
 
-Der frühere ColorSelectionDialog wurde entfernt: Farben werden jetzt
-vollständig im Layout Editor gewählt (Tools → Layout Editor, Ctrl+L).
+The former ColorSelectionDialog has been removed: colours are now
+chosen entirely in the Layout Editor (Tools -> Layout Editor, Ctrl+L).
 """
 
 
 def hex_to_bgr(hex_color):
-    """'#RRGGBB' → (B, G, R) Tupel für OpenCV."""
+    """'#RRGGBB' -> (B, G, R) tuple for OpenCV."""
     if isinstance(hex_color, (tuple, list)):
         return tuple(hex_color)
     h = str(hex_color).lstrip('#')

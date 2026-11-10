@@ -1,86 +1,85 @@
 """
-Verification Pass — "halber Pass" nach dem Vorpass.
+Verification Pass - the "half pass" that follows the pre-pass.
 
-ZWECK
-Der Vorpass dekodiert aus Geschwindigkeitsgründen auf 128×128 mit
-`flags=neighbor` (Punkt-Sampling). Aus 1080p/4K bleibt davon ein Bruchteil
-der Pixel übrig. In sehr ruhigen Szenen (driftende Wolken, langsamer
-Kameraschwenk) fällt die echte Bewegung dabei unter den Detektor-Threshold —
-Ergebnis sind Sektionen mit fälschlich 0 fps.
+PURPOSE
+For speed, the pre-pass decodes at 128x128 with `flags=neighbor` (point
+sampling). Out of 1080p or 4K that leaves a fraction of the pixels. In very
+calm scenes (drifting clouds, a slow camera pan) the real motion then falls
+below the detector threshold, and the result is sections falsely reported as
+0 fps.
 
-Dieser Pass prüft NUR die verdächtigen Sektionen nach (fps≈0, ≥1s) und
-korrigiert sie. Alles andere bleibt unangetastet.
-
-
-WARUM NICHT EINFACH "HÖHERE AUFLÖSUNG + NIEDRIGERER THRESHOLD"
-Gemessen: die absolute Diff-Größe hängt stark vom Downscale-Filter ab
-(AREA mittelt Rauschen weg und liefert ~4× kleinere Werte als NEAREST).
-Ein absoluter Threshold ist deshalb prinzipiell fragil — egal bei welcher
-Auflösung. Der Pass entscheidet daher über RELATIVE Kriterien.
+This pass re-checks ONLY the suspicious sections (fps~0, >=1s) and corrects
+them. Everything else is left untouched.
 
 
-DIE DREI SIGNALE (alle auf 256px AREA gemessen, echtes h264-Testmaterial)
+WHY NOT SIMPLY "HIGHER RESOLUTION + LOWER THRESHOLD"
+Measured: the absolute size of the diff depends heavily on the downscale
+filter (AREA averages noise away and yields values ~4x smaller than NEAREST).
+An absolute threshold is therefore fragile in principle, at any resolution.
+So this pass decides on RELATIVE criteria.
 
-  Region                      std     medK1      medK30    frac(K1≈0)
+
+THE THREE SIGNALS (all measured at 256px AREA on real h264 test footage)
+
+  Region                      std     medK1      medK30    frac(K1~0)
   busy 60fps                29.52   0.0068918  0.0452575     0.00
-  ruhige Wolken ECHT 60fps   6.88   0.0000730  0.0022819     0.07
-  eingefroren SOLL 0 fps     6.88   0.0000016  0.0000847     0.85
-  schwarz SOLL 0 fps         0.00   0.0000000  0.0000000     1.00
+  calm clouds REAL 60fps     6.88   0.0000730  0.0022819     0.07
+  frozen, SHOULD be 0 fps    6.88   0.0000016  0.0000847     0.85
+  black, SHOULD be 0 fps     0.00   0.0000000  0.0000000     1.00
 
-  K1  = Diff zum direkten Nachbarframe
-  K30 = Diff über 30 Frames Abstand (halbe Sekunde)
+  K1  = diff to the immediate neighbour frame
+  K30 = diff across a 30 frame gap (half a second)
 
-  1) frac(K1≈0) — Anteil praktisch bit-identischer Nachbarpaare.
-     Das ist das SCHÄRFSTE Signal: 0.07 (echte Bewegung) vs 0.85 (eingefroren).
-     Grund: h264/HEVC kodiert einen echt wiederholten Frame als Skip-Blocks,
-     er dekodiert bit-identisch. Subtile echte Bewegung tut das nie.
+  1) frac(K1~0) - the share of practically bit-identical neighbour pairs.
+     This is the SHARPEST signal: 0.07 (real motion) vs 0.85 (frozen).
+     Reason: h264/HEVC encodes a genuinely repeated frame as skip blocks, so
+     it decodes bit-identically. Subtle real motion never does.
 
-  2) Wachstum über die Zeitbasis (K30/K1) — Rückfallebene für den Fall,
-     dass Duplikate NICHT bit-identisch sind (z.B. Rauschen vor dem Encode,
-     Analog-Capture). Ein eingefrorenes Bild bleibt über 30 Frames genauso
-     ähnlich wie über 1; echte Bewegung summiert sich auf.
-     ACHTUNG: unbrauchbar wenn K1≈0 (Division durch ~0 → Ratio explodiert),
-     deshalb läuft Signal 1 zuerst.
+  2) Growth across the time baseline (K30/K1) - the fallback for the case
+     where duplicates are NOT bit-identical (e.g. noise before the encode,
+     analogue capture). A frozen image stays equally similar across 30 frames
+     as across 1; real motion accumulates.
+     CAUTION: useless when K1~0 (division by ~0 makes the ratio explode), so
+     signal 1 runs first.
 
-  3) std — einfarbige Frames (Fade, Blackscreen, Ladescreen) sind echte
-     0-fps-Abschnitte und werden sofort bestätigt.
-
-
-BLOCKWEISE, NICHT SEKTIONSWEIT
-Eine verdächtige Sektion kann eine Szenengrenze enthalten (z.B. eingefroren →
-Blackscreen). Ein Wachstumstest über die ganze Sektion misst dann den
-Szenenwechsel statt der Bewegung und liefert ein massives False Positive
-(gemessen: Ratio 285237× auf einer in Wahrheit eingefrorenen Sektion).
-Deshalb wird jede Sektion in ~1s-Blöcke zerlegt und jeder Block eigenständig
-entschieden.
-
-Danach werden fps_seq/ft_seq aus den korrigierten dup_flags KOMPLETT neu
-berechnet — nicht nur im Abschnitt, weil das gleitende 1s-Fenster bis zu
-eine Sekunde über die Sektionsgrenze hinausreicht.
+  3) std - single-colour frames (fade, black screen, loading screen) are
+     genuine 0 fps stretches and are confirmed immediately.
 
 
-GRENZE — WANN DER PASS DIE RATE NICHT BESTIMMEN KANN
-Gemessen an echtem h264-Testmaterial: in SEHR ruhigen, detailarmen Szenen
-kann der Encoder das Duplikat-Signal vollständig zerstören. Beispiel: echtes
-30fps-Material (jeder Frame doppelt) in einer Wolkenszene —
+PER BLOCK, NOT PER SECTION
+A suspicious section can contain a scene boundary (e.g. frozen -> black
+screen). A growth test across the whole section then measures the scene
+change instead of the motion and produces a massive false positive (measured:
+a ratio of 285237x on a section that was in fact frozen). So every section is
+split into ~1s blocks and each block is decided on its own.
 
-    Arbeitsauflösung   medK1 Duplikat-Paare   medK1 echte Paare   Trennung
-    128                     0.00008318            0.00009143        1.10×
-    256                     0.00008066            0.00008982        1.11×
-    512                     0.00008553            0.00009203        1.08×
-    1080                    0.00008520            0.00009221        1.08×
+Afterwards fps_seq/ft_seq are recomputed COMPLETELY from the corrected
+dup_flags - not just within the section, because the rolling 1s window
+reaches up to a second past the section boundary.
 
-Die Quantisierungs-Streuung des Encoders (~8e-5) ist größer als der
-Unterschied zwischen Duplikat und echtem Frame. Höhere Auflösung hilft NICHT
-(bis 1080px getestet), Phasenkorrelation ebenfalls nicht (0.01px gemessen bei
-0.1px echter Drift). Die Information ist im Encode nicht mehr enthalten.
 
-Konsequenz: der Pass beantwortet ZUVERLÄSSIG "ist das wirklich 0 fps?"
-(ja/nein), aber nicht immer "wie hoch ist die Rate genau?". Solche Blöcke
-werden über den Encoder-Rauschboden erkannt (aus sicher eingefrorenen Blöcken
-desselben Videos kalibriert) und als unsicher markiert — sichtbar im Log und
-im Report unter 'uncertain'. Per `uncertain_action` einstellbar, ob sie
-korrigiert werden ('correct', Default) oder auf 0 fps bleiben ('keep').
+LIMIT - WHEN THIS PASS CANNOT DETERMINE THE RATE
+Measured on real h264 test footage: in VERY calm, low-detail scenes the
+encoder can destroy the duplicate signal entirely. Example: real 30fps
+footage (every frame doubled) in a cloud scene -
+
+    Working resolution   medK1 duplicate pairs   medK1 real pairs   Separation
+    128                       0.00008318           0.00009143         1.10x
+    256                       0.00008066           0.00008982         1.11x
+    512                       0.00008553           0.00009203         1.08x
+    1080                      0.00008520           0.00009221         1.08x
+
+The encoder's quantisation spread (~8e-5) is larger than the difference
+between a duplicate and a real frame. A higher resolution does NOT help
+(tested up to 1080px), and neither does phase correlation (0.01px measured
+against 0.1px of real drift). The information is no longer in the encode.
+
+Consequence: this pass answers "is this really 0 fps?" RELIABLY (yes/no), but
+not always "what exactly is the rate?". Such blocks are recognised via the
+encoder noise floor (calibrated from blocks of the same video that are known
+to be frozen) and marked as uncertain - visible in the log and in the report
+under 'uncertain'. `uncertain_action` selects whether they are corrected
+('correct', the default) or left at 0 fps ('keep').
 """
 
 import subprocess
@@ -89,18 +88,18 @@ import numpy as np
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 
-WORK_SIZE = 256           # Arbeitsauflösung (Vorpass: 128 NEAREST)
-MIN_SECONDS = 1.0         # kürzere 0-fps-Abschnitte ignorieren (echte Drops)
-FPS_SUSPECT = 1.0         # fps <= diesem Wert gilt als "0 fps"
-UNIFORM_STD = 3.0         # Frame-std darunter = einfarbig → echt 0 fps
-NEAR_ZERO_MAD = 2e-5      # K1 darunter = praktisch bit-identisch (Duplikat)
-DUP_FRAC_CONFIRM = 0.50   # ab diesem Anteil bit-identischer Paare: 0 fps bestätigt
-GROWTH_RATIO_MIN = 3.0    # Rückfallebene: ab hier gilt der Block als bewegt
-PAD_SECONDS = 1.0         # Sektionen um je 1s erweitern (siehe find_suspect_sections)
-CONFIDENT_NOISE_MULT = 20.0   # Bewegung gilt als sicher ab 20× Encoder-Rauschboden
-ABS_CONFIDENT_K1 = 1e-3       # Fallback ohne Referenzblock: K1 darüber = sicher
-UNCERTAIN_ACTION = 'correct'  # 'correct' | 'keep' — Verhalten bei unsicherer Rate
-DECODE_CHUNK = 900        # max. Frames pro Decode-Aufruf (RAM-Deckel, 900≈59MB@256px)
+WORK_SIZE = 256           # working resolution (pre-pass: 128 NEAREST)
+MIN_SECONDS = 1.0         # ignore shorter 0 fps stretches (real drops)
+FPS_SUSPECT = 1.0         # fps <= this value counts as "0 fps"
+UNIFORM_STD = 3.0         # frame std below this = single colour -> really 0 fps
+NEAR_ZERO_MAD = 2e-5      # K1 below this = practically bit-identical (duplicate)
+DUP_FRAC_CONFIRM = 0.50   # from this share of bit-identical pairs: 0 fps confirmed
+GROWTH_RATIO_MIN = 3.0    # fallback: from here the block counts as moving
+PAD_SECONDS = 1.0         # extend sections by 1s each side (see find_suspect_sections)
+CONFIDENT_NOISE_MULT = 20.0   # motion counts as certain from 20x the encoder noise floor
+ABS_CONFIDENT_K1 = 1e-3       # fallback without a reference block: K1 above this = certain
+UNCERTAIN_ACTION = 'correct'  # 'correct' | 'keep' - behaviour on an uncertain rate
+DECODE_CHUNK = 900        # max. frames per decode call (RAM cap, 900 ~ 59MB@256px)
 
 
 # ── Sektionen finden ─────────────────────────────────────────────────────────
@@ -111,19 +110,19 @@ def find_suspect_sections(fps_seq, source_fps,
                           fade_excluded=None,
                           pad_seconds=PAD_SECONDS):
     """
-    Findet zusammenhängende Läufe mit fps <= fps_suspect von mindestens
-    min_seconds Länge. Fade-ausgeschlossene Frames zählen nicht als
-    verdächtig — dort ist 0 fps gewollt.
+    Finds contiguous runs with fps <= fps_suspect lasting at least
+    min_seconds. Frames excluded as fades do not count as suspicious - 0 fps
+    is intended there.
 
-    WICHTIG — PADDING: die fps stammen aus einem gleitenden 1s-Fenster. Am
-    Rand einer fehldetektierten Szene fällt der Wert deshalb erst allmählich
-    ab, d.h. die falschen dup_flags reichen bis zu 1s WEITER als der Bereich
-    mit fps<=1. Ohne Erweiterung bleibt dieser Rand unkorrigiert und zieht
-    das Ergebnis nach unten (gemessen: 29 fps Restfehler im Übergang).
-    Jede Sektion wird daher um pad_seconds nach beiden Seiten erweitert;
-    überlappende Sektionen werden zusammengefasst.
+    IMPORTANT - PADDING: the fps values come from a rolling 1s window. At the
+    edge of a misdetected scene the value therefore falls off only gradually,
+    i.e. the wrong dup_flags reach up to 1s FURTHER than the region with
+    fps<=1. Without an extension that edge stays uncorrected and drags the
+    result down (measured: a 29 fps residual error across the transition).
+    Every section is therefore extended by pad_seconds on both sides, and
+    overlapping sections are merged.
 
-    Returns: Liste von (start_idx, end_idx_exclusive).
+    Returns: a list of (start_idx, end_idx_exclusive).
     """
     fade_excluded = fade_excluded or set()
     min_len = max(1, int(round(min_seconds * source_fps)))
@@ -162,13 +161,13 @@ def find_suspect_sections(fps_seq, source_fps,
 def _decode_section_gray(input_file, start_frame, n_frames, source_fps,
                          size=WORK_SIZE, use_nvdec=True):
     """
-    Dekodiert [start_frame, start_frame+n_frames) als size×size-Graustufen.
+    Decodes [start_frame, start_frame+n_frames) as size x size greyscale.
 
-    `flags=area` statt `neighbor`: Punkt-Sampling würfelt bei starkem
-    Downscale einzelne Pixel heraus und ist gegenüber subtiler Bewegung
-    faktisch blind; area mittelt korrekt über den Quellblock.
+    `flags=area` instead of `neighbor`: point sampling throws away individual
+    pixels at a strong downscale and is effectively blind to subtle motion,
+    while area averages correctly over the source block.
 
-    Gibt Liste von float32-Arrays (0..255) zurück.
+    Returns a list of float32 arrays (0..255).
     """
     if n_frames <= 0:
         return []
@@ -212,7 +211,7 @@ def _decode_section_gray(input_file, start_frame, n_frames, source_fps,
 
 
 def _mad(a, b):
-    """Mean absolute difference, normiert auf 0..1."""
+    """Mean absolute difference, normalised to 0..1."""
     return float(np.mean(np.abs(a - b)) / 255.0)
 
 
@@ -220,14 +219,14 @@ def _mad(a, b):
 
 def classify_block(frames):
     """
-    Entscheidet für EINEN ~1s-Block, ob er wirklich eingefroren ist.
+    Decides for ONE ~1s block whether it is genuinely frozen.
 
-    Returns dict mit:
-        frozen    – True = 0 fps ist korrekt
-        dup_flags – Liste[bool], len == len(frames)
-        med_k1    – Median-Nachbardiff (für die Rauschboden-Kalibrierung)
-        clean_split – True = sauberer Duplikat-Cluster gefunden (hohe Sicherheit)
-        reason    – Klartext für das Log
+    Returns a dict with:
+        frozen    - True = 0 fps is correct
+        flags     - per-frame duplicate flags for this block
+        med_k1    - median neighbour diff (for the noise floor calibration)
+        confident - True = the rate can be determined reliably
+        reason    - plain text for the log
     """
     n = len(frames)
     if n < 2:
@@ -245,20 +244,20 @@ def classify_block(frames):
                   dtype=np.float64)
     med_k1 = float(np.median(k1))
 
-    # ── Signal 1: Anteil bit-identischer Nachbarpaare ───────────────────
+    # ── Signal 1: share of bit-identical neighbour pairs ────────────────
     near_zero = k1 < NEAR_ZERO_MAD
     frac_zero = float(near_zero.mean())
 
     if frac_zero >= DUP_FRAC_CONFIRM:
-        # Überwiegend echte Duplikate → 0 fps bestätigt. Flags trotzdem pro
-        # Frame: bei 30fps-Material ergibt das korrekt ~50% statt pauschal 100%.
+        # Mostly real duplicates -> 0 fps confirmed. Flags are still set per
+        # frame: on 30fps footage that correctly gives ~50% instead of a flat 100%.
         flags = [True] + [bool(z) for z in near_zero]
         return {'frozen': True, 'dup_flags': flags, 'med_k1': med_k1,
                 'clean_split': True,
                 'reason': f'{frac_zero*100:.0f}% bit-identische Paare → echt eingefroren'}
 
-    # ── Signal 2: Wachstum über die Zeitbasis (Duplikate mit Rauschen) ──
-    # Nur sinnvoll, wenn K1 nicht schon ~0 ist (siehe Modul-Docstring).
+    # ── Signal 2: growth across the time baseline (duplicates with noise) ──
+    # Only meaningful when K1 is not already ~0 (see the module docstring).
     ratio = None
     if med_k1 > NEAR_ZERO_MAD:
         k_far = min(30, n - 1)
@@ -268,10 +267,10 @@ def classify_block(frames):
             if ratio < GROWTH_RATIO_MIN:
                 return {'frozen': True, 'dup_flags': [True] * n, 'med_k1': med_k1,
                         'clean_split': True,
-                        'reason': f'Diff wächst nur {ratio:.2f}× über {k_far} Frames '
-                                  f'→ eingefrorenes Bild mit Rauschen'}
+                        'reason': f'diff grows only {ratio:.2f}x across {k_far} frames '
+                                  f'-> frozen image with noise'}
 
-    # ── Block ist in Wahrheit bewegt → per Verteilung neu klassifizieren ─
+    # ── The block is in fact moving -> reclassify by distribution ───────
     flags = [False] + [bool(z) for z in near_zero]
     clean_split = bool(near_zero.any())
 
@@ -288,22 +287,22 @@ def classify_block(frames):
                 clean_split = True
 
     dup_pct = 100.0 * sum(flags) / n
-    r_txt = f', Wachstum {ratio:.1f}×' if ratio is not None else ''
+    r_txt = f', growth {ratio:.1f}x' if ratio is not None else ''
     return {'frozen': False, 'dup_flags': flags, 'med_k1': med_k1,
             'clean_split': clean_split,
             'reason': f'echte Bewegung ({frac_zero*100:.0f}% identische Paare{r_txt}) '
                       f'→ Duplikat-Rate {dup_pct:.0f}%'}
 
 
-# ── fps/ft aus dup_flags neu berechnen ───────────────────────────────────────
+# ── Recompute fps/ft from dup_flags ──────────────────────────────────────────
 
 def recompute_fps_from_flags(dup_flags, source_fps, fade_excluded=None):
     """
-    Rechnet fps_seq/ft_seq aus dup_flags neu — exakt mit der Fensterlogik des
-    Vorpasses (gleitendes 1s-Fenster, Anteil Unique × source_fps).
+    Recomputes fps_seq/ft_seq from dup_flags - with exactly the window logic of
+    the pre-pass (rolling 1s window, share of unique frames x source_fps).
 
-    Bewusst über die GESAMTE Sequenz: das Fenster reicht bis zu 1s über eine
-    korrigierte Sektion hinaus, eine rein lokale Korrektur würde an der
+    Deliberately over the WHOLE sequence: the window reaches up to 1s past a
+    corrected section, so a purely local correction would leave a step at the
     Grenze springen.
     """
     import collections
@@ -337,16 +336,15 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
                           progress_cb=None, log=print,
                           is_cancelled=lambda: False):
     """
-    Hauptfunktion. Prüft alle verdächtigen 0-fps-Sektionen nach.
+    Main entry point. Re-checks every suspicious 0 fps section.
 
-    uncertain_action – was mit Blöcken passiert, die als bewegt erkannt
-        wurden, deren RATE aber nicht sicher bestimmbar ist (siehe
-        Modul-Docstring, Abschnitt GRENZE):
-          'correct' – korrigieren (Default; behebt den eigentlichen Bug,
-                      kann aber echtes 30fps-Material zu hoch ansetzen)
-          'keep'    – 0 fps stehen lassen (konservativ)
-        In beiden Fällen werden die betroffenen Zeitbereiche geloggt und
-        im Report unter 'uncertain' aufgeführt.
+    uncertain_action - what happens to blocks recognised as moving whose RATE
+        cannot be determined reliably (see the module docstring):
+          'correct' - correct them anyway (closer to the truth in most cases,
+                      but can set real 30fps footage too high)
+          'keep'    - leave them at 0 fps (conservative)
+        In both cases the affected time ranges are logged and listed in the
+        report under 'uncertain'.
 
     Returns: (fps_seq, ft_seq, dup_flags, report)
     """
@@ -356,21 +354,21 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
 
     sections = find_suspect_sections(fps_seq, source_fps, fade_excluded=fade_excluded)
     if not sections:
-        log("✅ Verifikations-Pass: keine verdächtigen 0-fps-Sektionen")
+        log("✅ Verification pass: no suspicious 0 fps sections")
         return fps_seq, ft_seq, dup_flags, report
 
     total = sum(e - s for s, e in sections)
-    log(f"🔎 Verifikations-Pass: {len(sections)} verdächtige Sektion(en), "
+    log(f"🔎 Verification pass: {len(sections)} suspicious section(s), "
         f"{total} Frames ({total/max(source_fps,1):.1f}s) @ {work_size}px AREA")
 
     dup_flags = list(dup_flags)
     block_len = max(4, int(round(source_fps)))
     done = 0
 
-    # ── PHASE 1: alle Blöcke klassifizieren, noch nichts anwenden ───────
-    # Zweiphasig, weil der Rauschboden des Encoders erst bekannt ist, wenn
-    # ein sicher eingefrorener Block gefunden wurde — der dient als Referenz
-    # für die Sicherheitsbewertung der bewegten Blöcke.
+    # ── PHASE 1: classify every block, apply nothing yet ────────────────
+    # Two phases, because the encoder noise floor is only known once a block
+    # known to be frozen has been found - that one serves as the reference
+    # for judging how certain the moving blocks are.
     pending = []   # (gpos, n_blk, result)
     for sec_s, sec_e in sections:
         if is_cancelled():
@@ -387,8 +385,8 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
                 source_fps, size=work_size, use_nvdec=use_nvdec)
 
             if len(frames) < 2:
-                log(f"   ⚠️ Decode fehlgeschlagen bei Frame "
-                    f"{sec_s + chunk_off}, Bereich übersprungen")
+                log(f"   ⚠️ Decode failed at frame "
+                    f"{sec_s + chunk_off}, range skipped")
                 continue
 
             for b0 in range(0, len(frames), block_len):
@@ -404,18 +402,18 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
                             f"Verifikation {done}/{total}")
 
     if not pending:
-        log("⚠️ Verifikations-Pass: nichts auswertbar")
+        log("⚠️ Verification pass: nothing could be evaluated")
         return fps_seq, ft_seq, dup_flags, report
 
-    # ── Rauschboden aus sicher eingefrorenen Blöcken schätzen ───────────
+    # ── Estimate the noise floor from blocks known to be frozen ─────────
     frozen_k1 = [r['med_k1'] for _, _, r in pending
                  if r['frozen'] and r['med_k1'] > 0]
     noise_floor = float(np.median(frozen_k1)) if frozen_k1 else None
     if noise_floor:
-        log(f"   Encoder-Rauschboden aus {len(frozen_k1)} eingefrorenen Block/Blöcken: "
+        log(f"   Encoder noise floor from {len(frozen_k1)} frozen block(s): "
             f"{noise_floor:.2e}")
     else:
-        log(f"   Kein eingefrorener Referenzblock — Sicherheitsbewertung über "
+        log(f"   No frozen reference block - judging certainty via "
             f"Absolutwert (Schwelle {ABS_CONFIDENT_K1:.0e})")
 
     # ── PHASE 2: anwenden ───────────────────────────────────────────────
@@ -426,8 +424,8 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
             confident = True
         else:
             report['blocks_moving'] += 1
-            # Sicher, wenn ein sauberer Duplikat-Cluster gefunden wurde ODER
-            # die Bewegung klar über dem Encoder-Rauschen liegt.
+            # Certain when a clean duplicate cluster was found, OR when the
+            # motion is clearly above the encoder noise.
             if res['clean_split']:
                 confident = True
             elif noise_floor:
@@ -440,11 +438,11 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
             report['uncertain'].append({'start': gpos, 'end': gpos + n_blk,
                                         'time_s': t0, 'med_k1': res['med_k1']})
             if uncertain_action == 'keep':
-                log(f"   ❓ Block {gpos}-{gpos+n_blk} (t={t0:.1f}s): bewegt, aber Rate "
-                    f"unsicher (K1={res['med_k1']:.1e} nahe Rauschboden) → 0 fps beibehalten")
+                log(f"   ❓ Block {gpos}-{gpos+n_blk} (t={t0:.1f}s): moving, but the rate "
+                    f"is uncertain (K1={res['med_k1']:.1e} near the noise floor) -> kept at 0 fps")
                 continue
-            log(f"   ❓ Block {gpos}-{gpos+n_blk} (t={t0:.1f}s): bewegt, aber Rate "
-                f"unsicher (K1={res['med_k1']:.1e} nahe Rauschboden) → korrigiert, bitte prüfen")
+            log(f"   ❓ Block {gpos}-{gpos+n_blk} (t={t0:.1f}s): moving, but the rate "
+                f"is uncertain (K1={res['med_k1']:.1e} near the noise floor) -> corrected, please check")
 
         changed = 0
         for i, f in enumerate(res['dup_flags']):
@@ -463,16 +461,16 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
 
     if any_corrected:
         fps_seq, ft_seq = recompute_fps_from_flags(dup_flags, source_fps, fade_excluded)
-        log(f"🔧 Verifikations-Pass: {report['corrected_frames']} Frames korrigiert "
-            f"({report['blocks_moving']} bewegte / {report['blocks_frozen']} eingefrorene Blöcke), "
-            f"fps/ft neu berechnet")
+        log(f"🔧 Verification pass: {report['corrected_frames']} frames corrected "
+            f"({report['blocks_moving']} moving / {report['blocks_frozen']} frozen blocks), "
+            f"fps/ft recomputed")
     else:
-        log(f"✅ Verifikations-Pass: alle {report['blocks_frozen']} Blöcke bestätigt, "
-            f"keine Korrektur nötig")
+        log(f"✅ Verification pass: all {report['blocks_frozen']} blocks confirmed, "
+            f"no correction needed")
 
     if report['uncertain']:
         times = ", ".join(f"{u['time_s']:.1f}s" for u in report['uncertain'][:8])
         more = "" if len(report['uncertain']) <= 8 else f" (+{len(report['uncertain'])-8} weitere)"
-        log(f"❓ {len(report['uncertain'])} Block/Blöcke mit unsicherer Rate bei: {times}{more}")
+        log(f"❓ {len(report['uncertain'])} block(s) with an uncertain rate at: {times}{more}")
 
     return fps_seq, ft_seq, dup_flags, report

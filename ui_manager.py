@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QComboBox, QProgressBar, QSizePolicy, QSlider,
                              QTextEdit, QCheckBox, QSpinBox, QFrame, QApplication, QGroupBox, QGridLayout,
-                             QStyle, QStyleOptionSlider) # GEÄNDERT: QGridLayout importiert
+                             QStyle, QStyleOptionSlider) # CHANGED: QGridLayout imported
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPolygon
 from PyQt6.QtCore import QPoint
@@ -31,7 +31,7 @@ class CustomComboBox(QComboBox):
         """Proper QPainter cleanup to prevent memory leaks"""
         super().paintEvent(event)
         painter = QPainter(self)
-        # GEÄNDERT: try...finally Block zur Behebung des Memory Leaks
+        # CHANGED: try...finally block to fix the memory leak
         try:
             if not painter.isActive():
                 return
@@ -54,7 +54,7 @@ class CustomComboBox(QComboBox):
             print(f"❌ Error in CustomComboBox painting: {e}")
         finally:
             if painter.isActive():
-                painter.end() # WICHTIG: Stellt sicher, dass der Painter immer beendet wird.
+                painter.end() # IMPORTANT: makes sure the painter is always ended.
 
 class CustomSpinBox(QFrame):
     """Custom SpinBox with proper cleanup and value handling"""
@@ -145,15 +145,15 @@ class CustomSpinBox(QFrame):
 
 class ClickableSlider(QSlider):
     """
-    QSlider, der auf Klick direkt an die angeklickte Stelle springt.
+    A QSlider that jumps straight to the clicked position.
 
-    Warum nötig: Qt springt beim Klick auf die Rille standardmäßig nur um
-    einen Page-Step weiter, statt an die Klickposition. Bei einem Video mit
-    mehreren tausend Frames heißt das, den Griff von Hand hinzuziehen.
+    Why this is needed: clicking the groove makes Qt advance by a single
+    page step instead of going to the click position. On a video with
+    several thousand frames that means dragging the handle there by hand.
 
-    Linksklick setzt den Wert direkt und startet zugleich das Ziehen, damit
-    Klicken und Scrubben nahtlos ineinander übergehen. Das normale
-    Qt-Verhalten für Mausrad und Tastatur bleibt unverändert.
+    A left click sets the value and starts the drag at the same time, so
+    clicking and scrubbing flow into each other. The normal Qt behaviour
+    for mouse wheel and keyboard stays unchanged.
     """
 
     def __init__(self, orientation, parent=None):
@@ -169,8 +169,8 @@ class ClickableSlider(QSlider):
         handle = style.subControlRect(QStyle.ComplexControl.CC_Slider, opt,
                                       QStyle.SubControl.SC_SliderHandle, self)
         if self.orientation() == Qt.Orientation.Horizontal:
-            # Griffbreite herausrechnen, sonst liegt der Sprung um die halbe
-            # Griffbreite daneben — besonders an den beiden Enden sichtbar.
+            # Subtract the handle width, otherwise the jump is off by half
+            # a handle - most visible at either end of the track.
             span = groove.width() - handle.width()
             rel = int(pos.x() - groove.x() - handle.width() / 2)
         else:
@@ -214,7 +214,7 @@ class ClickableSlider(QSlider):
 
 
 def format_timecode(frames, fps):
-    """Frameanzahl als mm:ss.ms bzw. h:mm:ss.ms formatieren."""
+    """Format a frame count as mm:ss.ms, or h:mm:ss.ms when long enough."""
     if not fps or fps <= 0:
         return "--:--"
     total = max(0.0, frames / float(fps))
@@ -303,7 +303,7 @@ class UIManager:
         return self.parent.preview_label
 
     def create_timeline_slider(self):
-        """Timeline mit Klick-zum-Springen und Zeitanzeige"""
+        """Timeline with click-to-seek and a time display"""
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
@@ -320,7 +320,7 @@ class UIManager:
         )
         self.parent.timeline_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.parent.timeline_slider.setToolTip(
-            "Klicken springt direkt an die Stelle, Ziehen scrubbt")
+            "Click to jump straight to a position, drag to scrub")
         row.addWidget(self.parent.timeline_slider, 1)
 
         self.parent.timeline_time_label = QLabel("--:-- / --:--")
@@ -329,7 +329,7 @@ class UIManager:
         self.parent.timeline_time_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.parent.timeline_time_label.setMinimumWidth(190)
-        self.parent.timeline_time_label.setToolTip("Position / Gesamtlänge · Frame")
+        self.parent.timeline_time_label.setToolTip("Position / total length · frame")
         row.addWidget(self.parent.timeline_time_label, 0)
 
         return container
@@ -463,7 +463,7 @@ class UIManager:
 
     def create_settings_panel(self):
         """Create settings panel with proper widget cleanup - UPDATED with new frame time standards"""
-        # GEÄNDERT: von QHBoxLayout zu QGridLayout für bessere Skalierbarkeit
+        # CHANGED: from QHBoxLayout to QGridLayout so it scales better
         settings_layout = QGridLayout()
         settings_layout.setSpacing(15)
 

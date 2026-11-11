@@ -164,7 +164,7 @@ class StatsPanelDialog(QDialog):
 
         root = QVBoxLayout(self)
 
-        # ── Titel ────────────────────────────────────────────────────────
+        # ── Title ────────────────────────────────────────────────────────
         row = QHBoxLayout()
         row.addWidget(QLabel("TITEL:"))
         self.title_edit = QLineEdit(cfg['title']['text'])
@@ -177,7 +177,7 @@ class StatsPanelDialog(QDialog):
         root.addLayout(row)
         root.addWidget(self._hline())
 
-        # ── Felder ───────────────────────────────────────────────────────
+        # ── Fields ───────────────────────────────────────────────────────
         self.add_btn = QPushButton("ADD BOX")
         self.add_btn.setToolTip(
             f"Adds a text field. It goes next to the last field, or into a\n"
@@ -205,7 +205,7 @@ class StatsPanelDialog(QDialog):
             w.setToolTip("Fixed field - cannot be deleted or widened.")
         root.addLayout(fixed)
 
-        # Dynamische Felder
+        # Dynamic fields
         self.fields_host = QWidget()
         self.fields_layout = QGridLayout(self.fields_host)
         self.fields_layout.setContentsMargins(0, 0, 0, 0)
@@ -227,7 +227,7 @@ class StatsPanelDialog(QDialog):
         root.addLayout(colors)
         root.addWidget(self._hline())
 
-        # ── Vorschau + Aktionen ─────────────────────────────────────────
+        # ── Preview + actions ────────────────────────────────────────────
         bottom = QHBoxLayout()
         self.preview = QLabel("Preview")
         self.preview.setMinimumSize(360, 260)

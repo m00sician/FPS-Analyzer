@@ -24,7 +24,7 @@ except ImportError:
     print("⚠️ CUDA Accelerator not available, using CPU")
 
 class IncrementalStats:
-    """Berechnet MIN/MAX/AVG inkrementell in O(1) pro Update."""
+    """Computes MIN/MAX/AVG incrementally in O(1) per update."""
     def __init__(self, warmup_frames=60):
         self.warmup_frames = warmup_frames
         self.count = 0
@@ -175,18 +175,25 @@ class FFmpegPipeWriter:
     (write / release / isOpened).
     """
     def __init__(self, output_path, width, height, fps, mode, use_nvenc=True,
-                 codec_family='h265', quality_preset='p6'):
+                 codec_family='h265', quality_preset='p6', in_pix_fmt='bgr24'):
         """
         mode: 'cq' (quality, CQ ~18) or an int (bitrate in Mbps).
         codec_family: 'h265' (HEVC, recommended for 4K) or 'h264'.
         quality_preset: NVENC preset p1(fast)..p7(best quality).
+        in_pix_fmt: 'bgr24' or 'yuv420p' - what the pipe is fed with.
+            With 'yuv420p' the frame carries half the bytes (12 instead of
+            23.7 MB at 4K) and ffmpeg's own BGR->YUV conversion on the input
+            side falls away, because the encoder wants yuv420p anyway.
         """
         self.ok = False
         self.failed = False
         self._proc = None
-        self.frame_bytes = width * height * 3
+        self.in_pix_fmt = in_pix_fmt if in_pix_fmt in ('bgr24', 'yuv420p') else 'bgr24'
+        self.frame_bytes = (width * height * 3 // 2
+                            if self.in_pix_fmt == 'yuv420p'
+                            else width * height * 3)
 
-        # ── Codec-Auswahl ──
+        # ── Codec selection ──
         if use_nvenc:
             enc_name = 'hevc_nvenc' if codec_family == 'h265' else 'h264_nvenc'
             codec = ['-c:v', enc_name, '-preset', quality_preset,
@@ -200,7 +207,7 @@ class FFmpegPipeWriter:
             enc_name = 'libx265' if codec_family == 'h265' else 'libx264'
             codec = ['-c:v', enc_name, '-preset', 'medium']
 
-        # ── Ratecontrol ──
+        # ── Rate control ──
         if mode == 'cq':
             # Quality based: CQ ~18, but with a high bitrate ceiling
             if use_nvenc:
@@ -221,11 +228,21 @@ class FFmpegPipeWriter:
                 rate = ['-b:v', f'{b}M', '-maxrate', f'{int(b*1.5)}M',
                         '-bufsize', f'{b*2}M']
 
+        # Colour metadata for the YUV path: the frames arrive in BT.601,
+        # because cv2 converts in BT.601 both ways and the reader therefore
+        # hands over BT.601 (scale=out_color_matrix=bt601). So the stream is
+        # TAGGED as BT.601 instead of being converted back - a tag costs
+        # nothing, a second full-frame matrix pass would cost a few ms per
+        # frame. Players honour the tag and show the source colours.
+        tags = (['-colorspace', 'smpte170m',
+                 '-color_primaries', 'bt709', '-color_trc', 'bt709']
+                if self.in_pix_fmt == 'yuv420p' else [])
+
         cmd = ['ffmpeg', '-y',
-               '-f', 'rawvideo', '-pix_fmt', 'bgr24',
+               '-f', 'rawvideo', '-pix_fmt', self.in_pix_fmt,
                '-s', f'{width}x{height}', '-r', f'{fps}',
                '-i', '-',
-               *codec, *rate,
+               *codec, *rate, *tags,
                '-pix_fmt', 'yuv420p',        # safe player compatibility
                '-movflags', '+faststart',
                output_path]
@@ -238,9 +255,9 @@ class FFmpegPipeWriter:
             self.ok = True
             _fam = 'HEVC' if codec_family == 'h265' else 'H.264'
             _hw = 'NVENC/GPU' if use_nvenc else 'CPU'
-            print(f"🚀 Direct-Pipe-Encode: {_fam} {_hw} preset={quality_preset if use_nvenc else 'medium'} → {output_path}")
+            print(f"🚀 Direct pipe encode: {_fam} {_hw} preset={quality_preset if use_nvenc else 'medium'} → {output_path}")
         except Exception as e:
-            print(f"⚠️ FFmpegPipeWriter Start fehlgeschlagen: {e}")
+            print(f"⚠️ FFmpegPipeWriter failed to start: {e}")
 
     def isOpened(self):
         return self.ok and not self.failed
@@ -252,7 +269,7 @@ class FFmpegPipeWriter:
             self._proc.stdin.write(frame.tobytes())
         except (BrokenPipeError, OSError) as e:
             self.failed = True
-            print(f"❌ Pipe-Encode abgebrochen: {e}")
+            print(f"❌ Pipe encode aborted: {e}")
 
     def release(self):
         if self._proc is None:
@@ -267,7 +284,7 @@ class FFmpegPipeWriter:
             self._proc.kill()
             rc = -1
         ok = (rc == 0) and not self.failed
-        print(f"{'✅' if ok else '❌'} Pipe-Encode beendet (rc={rc})")
+        print(f"{'✅' if ok else '❌'} Pipe encode finished (rc={rc})")
         return ok
 
 
@@ -410,10 +427,19 @@ class FFmpegFrameReader:
                  source_fps, use_nvdec=True, decode_format='bgr24'):
         self.width = int(width)
         self.height = int(height)
+        # 'yuv420p_raw' hands the planes through UNCONVERTED. That is the point
+        # of the YUV path: the conversion to RGB used to happen here, in the
+        # single reader thread, and at 4K it is the most expensive step of the
+        # whole decode (~10ms/frame). Handed through raw, it moves into the
+        # render workers, where it runs six times in parallel.
+        self._raw_yuv = (decode_format == 'yuv420p_raw')
+        if self._raw_yuv:
+            decode_format = 'yuv420p'
         self._fmt = decode_format if decode_format in ('bgr24', 'yuv420p') else 'bgr24'
         if self._fmt == 'yuv420p' and (self.width % 2 or self.height % 2):
             # yuv420p needs even edge lengths
             self._fmt = 'bgr24'
+            self._raw_yuv = False
         if self._fmt == 'yuv420p':
             self._frame_bytes = self.width * self.height * 3 // 2
             self._raw_shape = (self.height * 3 // 2, self.width)
@@ -457,8 +483,8 @@ class FFmpegFrameReader:
             ncpu = 4
         thread_args = ['-threads', str(ncpu), '-filter_threads', str(ncpu)]
 
-        variants = ([('NVDEC (GPU-Decode)', ['-hwaccel', 'cuda'])] if use_nvdec else [])
-        variants.append(('ffmpeg-Software', []))
+        variants = ([('NVDEC (GPU decode)', ['-hwaccel', 'cuda'])] if use_nvdec else [])
+        variants.append(('ffmpeg software', []))
 
         for name, hw in variants:
             cmd = ['ffmpeg', '-v', 'error', *thread_args, *hw]
@@ -471,6 +497,9 @@ class FFmpegFrameReader:
                 # Without the matrix adjustment cv2 would read BT.709 footage
                 # as BT.601 - measured up to 41 levels of deviation on 26% of
                 # the pixels. With it, at most 11 on 0.01% of the pixels.
+                # This applies to the raw path too: the workers convert with
+                # cv2 there, which likewise only knows BT.601. The encode side
+                # tags the output accordingly (see FFmpegPipeWriter).
                 cmd += ['-vf', 'scale=out_color_matrix=bt601']
             cmd += ['-f', 'rawvideo', '-pix_fmt', self._fmt, '-']
             try:
@@ -480,7 +509,7 @@ class FFmpegFrameReader:
                                      bufsize=self._frame_bytes)
                 first = self._read_exact(p.stdout, self._frame_bytes)
                 if first is None:
-                    raise RuntimeError('Decoder lieferte keinen Frame')
+                    raise RuntimeError('The decoder delivered no frame')
                 self._proc = p
                 self._first = first
                 self._decoder = name
@@ -496,9 +525,10 @@ class FFmpegFrameReader:
             raise RuntimeError('No ffmpeg decoder available for the render pass')
 
         frame_mb = self._frame_bytes / 1024 ** 2
-        print(f"📦 FFmpegFrameReader: {self._decoder}, Format {self._fmt}, "
-              f"{ncpu} Filter-Threads, {buffer_size} Frames gepuffert "
-              f"({frame_mb:.0f}MB × {buffer_size} = {buffer_size*frame_mb:.0f}MB RAM)")
+        print(f"📦 FFmpegFrameReader: {self._decoder}, "
+              f"format {self._fmt}{' (raw, no conversion)' if self._raw_yuv else ''}, "
+              f"{ncpu} filter threads, {buffer_size} frames buffered "
+              f"({frame_mb:.0f}MB x {buffer_size} = {buffer_size*frame_mb:.0f}MB RAM)")
 
         self._thread = Thread(target=self._reader, daemon=True)
         self._thread.start()
@@ -528,14 +558,14 @@ class FFmpegFrameReader:
             if data is None:
                 break
             frame = np.frombuffer(data, dtype=np.uint8).reshape(self._raw_shape)
-            if self._fmt == 'yuv420p':
+            if self._fmt == 'yuv420p' and not self._raw_yuv:
                 frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
             self._queue.put((True, frame))
             served += 1
             data = None
             if self._n_frames and served >= self._n_frames:
                 break
-        # Ende signalisieren (mehrfach, falls mehrere Leser warten)
+        # Signal the end (several times, in case more than one reader waits)
         for _ in range(4):
             try:
                 self._queue.put((False, None), timeout=1.0)
@@ -712,7 +742,8 @@ class AnalysisWorker(QThread):
         self.output_file = output_file
         self.settings = settings
         self.is_cancelled = False
-        
+        self._yuv_render = False     # set in analyze_video, see _yuv_render_possible
+
         # Extract segment information from settings
         self.start_frame = settings.get('segment_start_frame', None)
         self.end_frame = settings.get('segment_end_frame', None)
@@ -1020,7 +1051,7 @@ class AnalysisWorker(QThread):
         # Minimal Fallback
         overlay = frame_rgb.copy()
         try:
-            # Basis FPS Anzeige
+            # Base FPS display
             text = f"FPS: {displayed_fps:.1f}" if displayed_fps >= 0 else "FPS: ---"
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 2.0
@@ -1201,6 +1232,53 @@ class AnalysisWorker(QThread):
                      if ta['n'] else None)
         return disp, pf, pt
 
+    def _yuv_render_possible(self, src_w, src_h, dst_w, dst_h):
+        """
+        Decides whether the render pass can run in YUV.
+
+        What it buys: the reader hands over raw I420 instead of converting to
+        BGR itself. That conversion is the most expensive single step of the
+        decode at 4K (~10ms per frame) and used to run in the ONE reader
+        thread, which is exactly why the render pass sat at 53.7 fps with 97.8%
+        buffer starvation. In the workers the same conversion runs six times
+        in parallel, and the encoder pipe carries half the bytes on top
+        (12 instead of 23.7 MB per frame at 4K).
+
+        Measured decoder throughput at 4K (RTX 4090 / i9-14900K):
+            cv2.VideoCapture (converts to BGR itself)   53.7 fps
+            ffmpeg pipe, bgr24                          30.6 fps
+            ffmpeg pipe, bgr24, 8 filter threads        42.3 fps
+            ffmpeg pipe, yuv420p raw                    73.0 fps
+
+        Conditions, all of them necessary:
+          - 'render_yuv' switched on
+          - the parallel render pass (the conversion has to be parallel, or
+            nothing is gained)
+          - source resolution == target resolution. Scaling would have to
+            happen in RGB after the conversion, and a scaled frame would need
+            a full conversion back, which removes the point.
+          - even edge lengths (4:2:0) and no comparison mode (it crops).
+        """
+        if not self.settings.get('render_yuv', False):
+            return False
+        reasons = []
+        if not (self.settings.get('parallel_render', True)
+                and int(self.settings.get('render_workers', 6)) >= 2):
+            reasons.append('the parallel render pass is switched off')
+        if (src_w, src_h) != (dst_w, dst_h):
+            reasons.append(f'resolution changes ({src_w}x{src_h} -> {dst_w}x{dst_h})')
+        if dst_w % 2 or dst_h % 2:
+            reasons.append('odd edge length')
+        if self.settings.get('comparison_mode', False):
+            reasons.append('comparison mode crops the frames')
+        if self.target_bitrate_final == 'prores':
+            reasons.append('ProRes runs through the legacy writer')
+        if reasons:
+            print(f"🎨 YUV render path not used: {', '.join(reasons)} "
+                  f"-> standard BGR path")
+            return False
+        return True
+
     def _run_render_parallel(self, frame_reader, out, actual_start, actual_end,
                              source_fps, target_width, target_height,
                              fps_update_interval, segment_frames):
@@ -1249,15 +1327,31 @@ class AnalysisWorker(QThread):
         _stage = {'resize': 0.0, 'cvt_in': 0.0, 'overlay': 0.0, 'cvt_out': 0.0}
         _stage_lock = Lock()
 
+        # YUV path: the reader hands over raw I420, the workers convert to RGB
+        # and back, and the encoder pipe takes yuv420p directly. Decided by
+        # the reader, which is the only place that knows what it delivers.
+        yuv_mode = bool(getattr(frame_reader, '_raw_yuv', False))
+        if yuv_mode:
+            print("🎨 YUV render path active: conversion in the workers, "
+                  "yuv420p straight into the encoder")
+
         def _render_one(idx, frame):
             _t = time.perf_counter()
-            if comparison_mode:
+            if yuv_mode:
+                # The frame arrives as raw I420 (height*3/2, width) and needs
+                # no scaling - the YUV path only runs when source and target
+                # resolution match (see _yuv_render_possible).
+                _t_resize = _t
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_YUV2RGB_I420)
+            elif comparison_mode:
                 fp = adaptive_crop_and_resize(frame, target_width, target_height,
                                               comparison_mode=True)
+                _t_resize = time.perf_counter()
+                frame_rgb = cv2.cvtColor(fp, cv2.COLOR_BGR2RGB)
             else:
                 fp = resize_with_aspect_ratio(frame, target_width, target_height)
-            _t_resize = time.perf_counter()
-            frame_rgb = cv2.cvtColor(fp, cv2.COLOR_BGR2RGB)
+                _t_resize = time.perf_counter()
+                frame_rgb = cv2.cvtColor(fp, cv2.COLOR_BGR2RGB)
             _t_cvt_in = time.perf_counter()
             stats = ({'fps': pf[idx], 'frametime': pt[idx]}
                      if idx < len(pf) else None)
@@ -1271,7 +1365,10 @@ class AnalysisWorker(QThread):
                 full_fps_seq=seq, full_ft_seq=ftseq,
                 full_dev_seq=getattr(self, '_full_dev_flags', None))
             _t_overlay = time.perf_counter()
-            out_bgr = cv2.cvtColor(fw, cv2.COLOR_RGB2BGR)
+            if yuv_mode:
+                out_bgr = cv2.cvtColor(fw, cv2.COLOR_RGB2YUV_I420)
+            else:
+                out_bgr = cv2.cvtColor(fw, cv2.COLOR_RGB2BGR)
             _t_end = time.perf_counter()
             with _stage_lock:
                 _stage['resize']  += _t_resize  - _t
@@ -1292,9 +1389,14 @@ class AnalysisWorker(QThread):
                     _tb.print_exc()
                     print(f"⚠️ Render worker error @frame {w_idx}: {e} - frame without overlay")
                     try:
-                        fb = resize_with_aspect_ratio(fr, target_width, target_height)
+                        # In YUV mode the frame already has the output format,
+                        # so it goes through unchanged - just without overlay.
+                        fb = (fr if yuv_mode else
+                              resize_with_aspect_ratio(fr, target_width, target_height))
                     except Exception:
-                        fb = np.zeros((target_height, target_width, 3), dtype=np.uint8)
+                        fb = (np.zeros((target_height * 3 // 2, target_width), dtype=np.uint8)
+                              if yuv_mode else
+                              np.zeros((target_height, target_width, 3), dtype=np.uint8))
                 done_q.put((w_idx, fb))
 
         enc = {'written': 0}
@@ -1336,11 +1438,14 @@ class AnalysisWorker(QThread):
                         prog, f"Frame {actual_start + w}/{actual_end} - "
                               f"{_fps_txt} - Duplicates: {dr:.1f}%")
                 if w % 50 == 0:
-                    self.frame_preview.emit(fb)
+                    # The preview expects BGR; in YUV mode it is converted
+                    # here, for every 50th frame only.
+                    self.frame_preview.emit(
+                        cv2.cvtColor(fb, cv2.COLOR_YUV2BGR_I420) if yuv_mode else fb)
                 if w % 100 == 0:
                     dt = time.perf_counter() - t_start
-                    print(f"⚡ PARALLEL: {w} Frames in {dt:.1f}s → "
-                          f"{w/dt:.1f} FPS ({dt/w*1000:.1f}ms/Frame, {workers} Worker)")
+                    print(f"⚡ PARALLEL: {w} frames in {dt:.1f}s -> "
+                          f"{w/dt:.1f} FPS ({dt/w*1000:.1f}ms/frame, {workers} workers)")
                 if disp_state['done'] and w >= disp_state['n']:
                     break
 
@@ -1387,7 +1492,7 @@ class AnalysisWorker(QThread):
 
         dt = time.perf_counter() - t_start
         if idx:
-            print(f"⚡ PARALLEL fertig: {idx} Frames in {dt:.1f}s "
+            print(f"⚡ PARALLEL finished: {idx} frames in {dt:.1f}s "
                   f"({idx/max(dt, 1e-6):.1f} FPS, {dt/idx*1000:.1f}ms/Frame)")
             # ── Where does the time go? ─────────────────────────────────
             _tot = sum(_stage.values()) or 1e-9
@@ -1486,7 +1591,7 @@ class AnalysisWorker(QThread):
                                      stdin=subprocess.DEVNULL)
                 f0 = _read_exact(p.stdout, fb)
                 if f0 is None:
-                    raise RuntimeError('Decoder lieferte keinen Frame')
+                    raise RuntimeError('The decoder delivered no frame')
                 proc, first, name_used = p, f0, name
                 break
             except Exception as e:
@@ -1516,7 +1621,7 @@ class AnalysisWorker(QThread):
                 except Exception:
                     pass
 
-        # cv2-Fallback: alter Weg (voller Decode + Shrink in Python)
+        # cv2 fallback: the old route (full decode + shrink in Python)
         self._prepass_decoder = 'cv2 fallback'
         print("🐢 Pre-pass decoder: cv2 fallback (full frame decode)")
         cap.set(cv2.CAP_PROP_POS_FRAMES, decode_start)
@@ -1642,7 +1747,7 @@ class AnalysisWorker(QThread):
                 _is_f = fade_det.process(gray)
                 if _is_f:
                     _fade_frame_count += 1
-                # Diagnose: kleinsten std-Wert tracken
+                # Diagnostics: track the smallest std value
                 _s = float(gray.std())
                 if _s < _min_std_seen:
                     _min_std_seen = _s
@@ -1782,6 +1887,14 @@ class AnalysisWorker(QThread):
             # Saves the intermediate encode + the re-encode pass. ProRes stays legacy.
             self._pipe_direct = False
             out = None
+
+            # ── YUV render path ('render_yuv') ──────────────────────────────
+            # Decided here, because the writer is created before the reader and
+            # both sides have to agree on the format.
+            self._yuv_render = self._yuv_render_possible(
+                source_width, source_height, target_width, target_height)
+            _in_fmt = 'yuv420p' if self._yuv_render else 'bgr24'
+
             if self.target_bitrate_final != 'prores':
                 _mode = 'cq' if self.target_bitrate_final == 'opencv' else int(self.target_bitrate_final)
                 # Codec + preset from the settings (default: HEVC, p6 = high quality)
@@ -1795,18 +1908,26 @@ class AnalysisWorker(QThread):
                         _nv = True
                 pw = FFmpegPipeWriter(self.final_output, target_width, target_height,
                                       source_fps, _mode, use_nvenc=_nv,
-                                      codec_family=_codec_family, quality_preset=_preset)
+                                      codec_family=_codec_family, quality_preset=_preset,
+                                      in_pix_fmt=_in_fmt)
                 if not pw.isOpened() and _nv:
-                    # NVENC-Start scheiterte trotz Probe → CPU-Encode versuchen
+                    # NVENC failed to start despite the probe -> try a CPU encode
                     pw = FFmpegPipeWriter(self.final_output, target_width, target_height,
                                           source_fps, _mode, use_nvenc=False,
-                                          codec_family=_codec_family)
+                                          codec_family=_codec_family,
+                                          in_pix_fmt=_in_fmt)
                 if pw.isOpened():
                     out = pw
                     self._pipe_direct = True
 
             if out is None:
-                # Legacy-Pfad: MJPEG-Zwischendatei + finaler Re-Encode
+                # The legacy writer only takes BGR frames, so the YUV path is
+                # off the table as soon as the direct pipe did not come up.
+                if self._yuv_render:
+                    self._yuv_render = False
+                    print("🎨 YUV render path dropped: the direct pipe is "
+                          "unavailable, the legacy writer needs BGR")
+                # Legacy path: intermediate MJPEG file + final re-encode
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 out = cv2.VideoWriter(temp_output, fourcc, source_fps, (target_width, target_height))
                 if not out.isOpened():
@@ -2015,7 +2136,7 @@ class AnalysisWorker(QThread):
             # The NVDEC path stays reachable via 'render_nvdec': True, in
             # case this behaves differently on other hardware.
             frame_reader = None
-            if self.settings.get('render_nvdec', False):
+            if self.settings.get('render_nvdec', False) and not getattr(self, '_yuv_render', False):
                 try:
                     frame_reader = FFmpegFrameReader(
                         self.input_file,
@@ -2029,6 +2150,47 @@ class AnalysisWorker(QThread):
                     print(f"⚠️ NVDEC render decoder not available, "
                           f"using the cv2 fallback: {e}")
                     frame_reader = None
+
+            # The YUV path brings its own reader: an ffmpeg pipe that hands
+            # over raw I420. Software decode by default, because NVDEC does not
+            # help here (see FFmpegFrameReader) - 'render_yuv_nvdec' switches
+            # it on for anyone who wants to measure it on other hardware.
+            if frame_reader is None and getattr(self, '_yuv_render', False):
+                try:
+                    frame_reader = FFmpegFrameReader(
+                        self.input_file, target_width, target_height,
+                        actual_start, max(0, actual_end - actual_start),
+                        source_fps,
+                        use_nvdec=bool(self.settings.get('render_yuv_nvdec', False)),
+                        decode_format='yuv420p_raw')
+                    if not getattr(frame_reader, '_raw_yuv', False):
+                        # Fell back to bgr24 (odd edge length) - then the
+                        # writer's format no longer matches, so stop here.
+                        raise RuntimeError('reader could not deliver raw I420')
+                except Exception as e:
+                    print(f"⚠️ YUV reader not available ({e})")
+                    frame_reader = None
+                    self._yuv_render = False
+                    # The writer is already running and expects yuv420p.
+                    # Feeding it BGR would produce garbage, so it is restarted
+                    # in BGR - that is the only way back to the standard path.
+                    if self._pipe_direct and out is not None:
+                        try:
+                            out.release()
+                        except Exception:
+                            pass
+                        pw = FFmpegPipeWriter(
+                            self.final_output, target_width, target_height,
+                            source_fps, _mode, use_nvenc=_nv,
+                            codec_family=_codec_family, quality_preset=_preset,
+                            in_pix_fmt='bgr24')
+                        if not pw.isOpened():
+                            raise RuntimeError(
+                                'YUV path failed and the BGR writer could not '
+                                'be restarted')
+                        out = pw
+                        print("↩️ Writer restarted in BGR, standard path")
+
             if frame_reader is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, actual_start)
                 frame_reader = AsyncFrameReader(cap)
@@ -2190,7 +2352,7 @@ class AnalysisWorker(QThread):
                 # Convert to RGB for overlay
                 frame_rgb = cv2.cvtColor(frame_processed, cv2.COLOR_BGR2RGB)
                 
-                # Playhead-Index = Position im vorberechneten Sequenz-Array
+                # Playhead index = position in the precomputed sequence array
                 _render_idx = frame_count
 
                 # On-the-fly statistics INCREMENTALLY: only the new value is

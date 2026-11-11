@@ -93,24 +93,24 @@ class FontSizeConfig:
             'fps_number': 80,
             'fps_label': 30,
             'stats_text': 36,
-            'stats_spacing': 150,    # Wird ignoriert
-            'frametime_spacing': 60, # Wird ignoriert
+            'stats_spacing': 150,    # ignored
+            'frametime_spacing': 60, # ignored
             'border_thickness': 3,
         },
         '1080p': {
             'fps_number': 60,
             'fps_label': 24,
             'stats_text': 24,
-            'stats_spacing': 120,    # Wird ignoriert
-            'frametime_spacing': 50, # Wird ignoriert
+            'stats_spacing': 120,    # ignored
+            'frametime_spacing': 50, # ignored
             'border_thickness': 1,
         },
         '720p': {
             'fps_number': 40,
             'fps_label': 18,
             'stats_text': 20,
-            'stats_spacing': 80,     # Wird ignoriert
-            'frametime_spacing': 30, # Wird ignoriert
+            'stats_spacing': 80,     # ignored
+            'frametime_spacing': 30, # ignored
             'border_thickness': 2,
         }
     }

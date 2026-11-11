@@ -102,7 +102,7 @@ UNCERTAIN_ACTION = 'correct'  # 'correct' | 'keep' - behaviour on an uncertain r
 DECODE_CHUNK = 900        # max. frames per decode call (RAM cap, 900 ~ 59MB@256px)
 
 
-# ── Sektionen finden ─────────────────────────────────────────────────────────
+# ── Find the sections ────────────────────────────────────────────────────────
 
 def find_suspect_sections(fps_seq, source_fps,
                           min_seconds=MIN_SECONDS,
@@ -215,7 +215,7 @@ def _mad(a, b):
     return float(np.mean(np.abs(a - b)) / 255.0)
 
 
-# ── Block-Entscheidung ───────────────────────────────────────────────────────
+# ── Classify a block ─────────────────────────────────────────────────────────
 
 def classify_block(frames):
     """
@@ -233,7 +233,7 @@ def classify_block(frames):
         return {'frozen': True, 'dup_flags': [True] * n, 'med_k1': 0.0,
                 'clean_split': True, 'reason': 'zu kurz'}
 
-    # ── Signal 3: einfarbig? ────────────────────────────────────────────
+    # ── Signal 3: single colour? ────────────────────────────────────────
     med_std = float(np.median([f.std() for f in frames]))
     if med_std < UNIFORM_STD:
         return {'frozen': True, 'dup_flags': [True] * n, 'med_k1': 0.0,
@@ -416,7 +416,7 @@ def run_verification_pass(input_file, fps_seq, ft_seq, dup_flags, source_fps,
         log(f"   No frozen reference block - judging certainty via "
             f"Absolutwert (Schwelle {ABS_CONFIDENT_K1:.0e})")
 
-    # ── PHASE 2: anwenden ───────────────────────────────────────────────
+    # ── PHASE 2: apply ──────────────────────────────────────────────────
     any_corrected = False
     for gpos, n_blk, res in pending:
         if res['frozen']:

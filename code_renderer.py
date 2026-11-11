@@ -24,7 +24,7 @@ import numpy as np
 import cv2
 from typing import Dict, List, Optional, Tuple
 
-# ── Optionale Dependencies ─────────────────────────────────────────────────────
+# ── Optional dependencies ─────────────────────────────────────────────────────
 try:
     # noqa: F401 - Image and ImageFont look unused, but they belong to the
     # check: only when ALL THREE can be imported is Pillow really complete.
@@ -76,11 +76,11 @@ except ImportError:
 
 
 # ── Constants (from the template analysis) ────────────────────────────────────
-# Hintergrund: schwarz, 50% Deckkraft
+# Background: black, 50% opacity
 BG_COLOR   = (0, 0, 0)
 BG_ALPHA   = 128 / 255.0        # 0.502
 
-# Grid-Linien: hellgrau, 70% Deckkraft
+# Grid lines: light grey, 70% opacity
 GRID_COLOR = (145, 145, 145)
 GRID_ALPHA = 179 / 255.0        # 0.702
 
@@ -89,8 +89,8 @@ LABEL_COLOR     = (255, 255, 255)
 LABEL_STROKE    = (0, 0, 0)
 
 # Graph structure (relative to the template size, extracted from pixel analysis)
-# FPS Template 1840x580: Graph-Bereich y=73..557 (4 Sections à 121px)
-# Titel-Bereich: 0..73 (transparent), Graph: 73..557, Bottom-Pad: 557..580
+# FPS template 1840x580: graph area y=73..557 (4 sections of 121px each)
+# Title area: 0..73 (transparent), graph: 73..557, bottom pad: 557..580
 TITLE_H_RATIO  = 73  / 580    # ~12.6% of the height for the title area
 BOTTOM_RATIO   = 23  / 580    # ~4%  Bottom-Padding
 # -> graph area: 12.6% .. 96% of the template height
@@ -104,7 +104,7 @@ MAX_GRAPH_POINTS = 180
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ██  MANUELLE TEXT-JUSTIERUNG  ██
+# ##  MANUAL TEXT ADJUSTMENT  ##
 # ═══════════════════════════════════════════════════════════════════════════════
 # Manual fine-tuning of the text elements. All offset values are PIXELS at 4K
 # (2160p height) and are scaled automatically to the output resolution - a
@@ -119,26 +119,26 @@ MAX_GRAPH_POINTS = 180
 # ───────────────────────────────────────────────────────────────────────────────
 
 # ── FRAME RATE ──
-FR_TITLE_DX   = 0      # "FRAME RATE" Text links/rechts
-FR_TITLE_DY   = 0      # "FRAME RATE" Text hoch/runter
+FR_TITLE_DX   = 0      # "FRAME RATE" text left/right
+FR_TITLE_DY   = 0      # "FRAME RATE" text up/down
 FR_TITLE_SIZE = 1.0    # "FRAME RATE" text size (multiplier)
-FR_LABELS_DX   = 0     # Achsenlabels (60/30/0) links/rechts
-FR_LABELS_DY   = 0     # Achsenlabels hoch/runter
+FR_LABELS_DX   = 0     # axis labels (60/30/0) left/right
+FR_LABELS_DY   = 0     # axis labels up/down
 FR_LABELS_SIZE = 1.0   # axis label text size (multiplier)
 FR_LABELS_GAP  = 5     # gap between the FR labels and the graph (4K px, + = further away)
 
 # ── FRAME TIME ──
 FT_TITLE_DX   = 0      # "FRAME TIME" Text links/rechts
-FT_TITLE_DY   = 0      # "FRAME TIME" Text hoch/runter
+FT_TITLE_DY   = 0      # "FRAME TIME" text up/down
 FT_TITLE_SIZE = 1.0    # "FRAME TIME" text size (multiplier)
-FT_LABELS_DX   = 0     # ms-Labels links/rechts
-FT_LABELS_DY   = 0     # ms-Labels hoch/runter
+FT_LABELS_DX   = 0     # ms labels left/right
+FT_LABELS_DY   = 0     # ms labels up/down
 FT_LABELS_SIZE = 1.0   # ms label text size (multiplier)
 FT_LABELS_GAP  = 5     # gap between the FT labels and the graph (4K px, + = further away)
 
-# ── FPS-Zahl oben links ──
-FPS_NUM_DX   = 0       # FPS-Zahl links/rechts
-FPS_NUM_DY   = 0       # FPS-Zahl hoch/runter
+# ── FPS number, top left ──
+FPS_NUM_DX   = 0       # FPS number left/right
+FPS_NUM_DY   = 0       # FPS number up/down
 FPS_NUM_SIZE = 1.0     # FPS number text size (multiplier)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -158,7 +158,7 @@ def _tweak_for(title):
 
 def _alpha_composite_rect(img: np.ndarray, x1: int, y1: int,
                            x2: int, y2: int, color: tuple, alpha: float):
-    """Semi-transparentes Rechteck direkt in img compositen (in-place)."""
+    """Composite a semi-transparent rectangle straight into img (in place)."""
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(img.shape[1], x2), min(img.shape[0], y2)
     if x2 <= x1 or y2 <= y1:
@@ -170,7 +170,7 @@ def _alpha_composite_rect(img: np.ndarray, x1: int, y1: int,
 
 def _alpha_composite_hline(img: np.ndarray, y: int, x1: int, x2: int,
                             color: tuple, alpha: float, thickness: int = 1):
-    """Semi-transparente horizontale Linie."""
+    """Semi-transparent horizontal line."""
     half = thickness // 2
     _alpha_composite_rect(img, x1, y - half, x2, y + half + 1, color, alpha)
 
@@ -313,7 +313,7 @@ def _composite_text_rgba(canvas, cx, cy, canvas_w, canvas_h,
         lby = max(0, min(canvas_h - label_fs, lby))
         _draw_one(label, label_x, lby, label_fs, sw_label)
 
-    # Titel
+    # Title
     _draw_one(title, title_x, title_y, title_fs, sw_title)
 
     # Composite into the RGBA canvas with correct alpha (over the existing BG/grid)
@@ -344,7 +344,7 @@ def _draw_text_pillow(img: np.ndarray, text: str, x: int, y: int,
     if font is None:
         return _draw_text_opencv(img, text, x, y, font_size, color, stroke_color, stroke_width)
 
-    # Bounding Box ermitteln
+    # Determine the bounding box
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
@@ -391,7 +391,7 @@ def _draw_text_opencv(img, text, x, y, font_size,
     return img
 
 
-# ── Graph-Zeichner ─────────────────────────────────────────────────────────────
+# ── Graph drawing ─────────────────────────────────────────────────────────────
 
 def draw_graph_background(img: np.ndarray,
                            gx: int, gy: int, gw: int, gh: int,
@@ -401,10 +401,10 @@ def draw_graph_background(img: np.ndarray,
                            title_font_size: int):
     """
     Draws the graph background exactly like the PNG template:
-      - Transparenter Titel-Bereich oben
-      - Semi-transparenter schwarzer Hintergrund (50%)
+      - a transparent title area at the top
+      - a semi-transparent black background (50%)
       - 5 horizontal grid lines (light grey 70%), evenly spaced
-      - Titel oben links (Bebas Neue)
+      - the title at the top left (Bebas Neue)
       - axis labels outside on the right
     """
     # Height of the title area (proportional, as in the template)
@@ -412,7 +412,7 @@ def draw_graph_background(img: np.ndarray,
     # Alternatively, directly: the graph area without the title is passed in
     # already. The caller provides gy such that the title sits above it.
 
-    # 1. Schwarzer Hintergrund (50% Deckkraft)
+    # 1. Black background (50% opacity)
     _alpha_composite_rect(img, gx, gy, gx + gw, gy + gh, BG_COLOR, BG_ALPHA)
 
     # 2. Grid lines (5 of them: top, 3 in the middle, bottom)
@@ -427,9 +427,9 @@ def draw_graph_background(img: np.ndarray,
     # 3. Axis labels on the right (outside the graph area)
     label_x = gx + gw + max(4, int(gw * 0.008))
     for i, label in enumerate(grid_labels):
-        # grid_labels[0] = oben (max), grid_labels[-1] = unten (min)
+        # grid_labels[0] = top (max), grid_labels[-1] = bottom (min)
         if len(grid_labels) == 3:
-            positions = [0, 2, 4]   # oben, mitte, unten
+            positions = [0, 2, 4]   # top, middle, bottom
         else:
             positions = list(range(len(grid_labels)))
 
@@ -694,7 +694,7 @@ def draw_frametime_line(img: np.ndarray,
 
 
 
-# ── Haupt-Renderer ─────────────────────────────────────────────────────────────
+# ── Main renderer ─────────────────────────────────────────────────────────────
 
 class CodeRenderer:
     """
@@ -800,7 +800,7 @@ class CodeRenderer:
             inv = prep['inv'][:th, :tw]
             pre = prep['pre'][:th, :tw]
         else:
-            # Beschnittener Sparse-Layer → einmalig dicht nachrechnen
+            # Clipped sparse layer -> recompute it densely, once
             a = layer[:th, :tw, 3:4].astype(np.float32) / 255.0
             inv = 1.0 - a
             pre = layer[:th, :tw, :3].astype(np.float32) * a
@@ -841,7 +841,7 @@ class CodeRenderer:
             canvas[cy1:cy2, cx1:cx2, :3] = color
             canvas[cy1:cy2, cx1:cx2, 3]  = np.clip(new_a * 255, 0, 255).astype(np.uint8)
 
-        ot = max(2, int(gh / 150)) + 1   # 1px dicker
+        ot = max(2, int(gh / 150)) + 1   # 1px thicker
         if border_style == 'White Outline':
             _rect_rgba(cx,           cy,           cx + gw,     cy + ot,     (255,255,255), 0.9)
             _rect_rgba(cx,           cy + gh - ot, cx + gw,     cy + gh,     (255,255,255), 0.9)
@@ -951,7 +951,7 @@ class CodeRenderer:
         title_fs  = max(6, int(title_font_size * t_tsize))
         label_fs  = max(6, int(label_font_size * l_lsize))
 
-        # Basis-Position Labels: per-Graph Gap + individueller Tweak
+        # Base label position: per-graph gap + individual tweak
         label_x  = cx + gw + max(3, int(gw * 0.012) - int(l_gap * s4k_lbl)) + lbl_dx
         title_y  = max(0, cy - title_font_size - max(2, int(gh * 0.01))) + title_dy
         title_x  = cx + title_dx
@@ -1145,7 +1145,7 @@ class CodeRenderer:
             blend_x  = max(0, gx - left_m)
             blend_y  = max(0, gy - title_margin)
             # Centrally through _blend_rgba - uses the optimised CPU path with
-            # vorbereiteten, gecachten Alpha-Daten (siehe _blend_prep).
+            # prepared, cached alpha data (see _blend_prep).
             self._blend_rgba(overlay, bg, blend_x, blend_y, w, h)
 
             _ph_fps = (full_fps_seq, playhead_index) if (playhead_index is not None and full_fps_seq is not None) else None
@@ -1182,7 +1182,7 @@ class CodeRenderer:
             blend_x  = max(0, gx - left_m)
             blend_y  = max(0, gy - title_margin)
             # Centrally through _blend_rgba - uses the optimised CPU path with
-            # vorbereiteten, gecachten Alpha-Daten (siehe _blend_prep).
+            # prepared, cached alpha data (see _blend_prep).
             self._blend_rgba(overlay, bg, blend_x, blend_y, w, h)
 
             _ph_ft = (full_ft_seq, playhead_index) if (playhead_index is not None and full_ft_seq is not None) else None
@@ -1197,7 +1197,7 @@ class CodeRenderer:
             self._blend_rgba(overlay, border, blend_x, blend_y, w, h)
         t_debug['ft_graph'] = time.perf_counter() - t0
 
-        # ── 3. FPS-Zahl ────────────────────────────────────────────────────────
+        # ── 3. FPS number ──────────────────────────────────────────────────────
         t0 = time.perf_counter()
         fpsd = layout_config.get('fps_display', {})
         if fpsd.get('visible', True):
@@ -1205,7 +1205,7 @@ class CodeRenderer:
             multiplier    = fpsd.get('font_scale_multiplier', 1.0)
             if multiplier != 1.0:
                 fps_font_size = int(fps_font_size * multiplier)
-            # Manuelle FPS-Zahl-Justierung (Tweak-Block)
+            # Manual FPS number adjustment (tweak block)
             _s4k_fps = h / 2160.0
             fps_font_size = max(6, int(fps_font_size * FPS_NUM_SIZE))
             _fps_dx = int(FPS_NUM_DX * _s4k_fps)
@@ -1239,7 +1239,7 @@ class CodeRenderer:
                 fps_font_size, _style_mode, _sw, pil_font=_pf)
         t_debug['fps_number'] = time.perf_counter() - t0
 
-        # ── 4. Statistiken ─────────────────────────────────────────────────────
+        # ── 4. Statistics ──────────────────────────────────────────────────────
         t0 = time.perf_counter()
         stats_font_size   = FontSizeConfig.get_absolute_size('stats_text', w, h)
         _style_stats = getattr(self, '_overlay_style', {}) or {}
@@ -1277,7 +1277,7 @@ class CodeRenderer:
                                       stats_font_size,
                                       stroke_width=border_thickness)
 
-        # FPS-Statistiken
+        # FPS statistics
         fps_stat_data = None
         if precomputed_stats and 'fps' in precomputed_stats:
             fps_stat_data = precomputed_stats['fps']
@@ -1287,7 +1287,7 @@ class CodeRenderer:
                              'min': min(rec), 'max': max(rec)}
         _draw_stats('fps_statistics', fps_stat_data)
 
-        # Frametime-Statistiken
+        # Frame time statistics
         ft_stat_data = None
         if precomputed_stats and 'frametime' in precomputed_stats:
             ft_stat_data = precomputed_stats['frametime']
@@ -1344,7 +1344,7 @@ class CodeRenderer:
         self.render_times.append(render_time)
         self._frame_count += 1
 
-        # ── Stufen-Zeiten thread-sicher aufsummieren ────────────────────
+        # ── Accumulate the stage timings thread-safely ──────────────────
         # This used to print per frame and was suppressed entirely in parallel
         # mode, which meant the 6-worker run produced no breakdown at all.
         # Now it is accumulated and reported once at the end.
@@ -1375,10 +1375,10 @@ class CodeRenderer:
         total = acc['total'] or 1e-9
         lines = [f"🔬 Overlay breakdown ({n} frames, "
                  f"{total:.1f}s Worker-Zeit gesamt):"]
-        named = {'copy': 'Frame kopieren',
-                 'fps_graph': 'FPS-Graph (Milchglas+Blend+Linie)',
+        named = {'copy': 'Copy frame',
+                 'fps_graph': 'FPS graph (frosted glass+blend+line)',
                  'ft_graph': 'Frametime-Graph',
-                 'fps_number': 'FPS-Zahl (Text)',
+                 'fps_number': 'FPS number (text)',
                  'statistics': 'Statistics text'}
         acc_sum = 0.0
         for k, v in parts:
@@ -1386,7 +1386,7 @@ class CodeRenderer:
             lines.append(f"     {named[k]:34s} {v*1000/n:7.2f} ms/Frame "
                          f"({100*v/total:5.1f}%)")
         rest = total - acc_sum
-        lines.append(f"     {'sonstiges (Setup/Layout)':34s} {rest*1000/n:7.2f} ms/Frame "
+        lines.append(f"     {'other (setup/layout)':34s} {rest*1000/n:7.2f} ms/frame "
                      f"({100*rest/total:5.1f}%)")
         _tc = text_cache_stats()
         if _tc:
@@ -1518,7 +1518,7 @@ def _blend_text_layer(img, entry, ox, oy):
         return
     inv, pre = prep['inv'], prep['pre']
 
-    # Beschnitt auch im Sparse-Pfad behandeln. Vorher fiel jeder beschnittene
+    # Handle clipping in the sparse path too. Previously every clipped layer
     # falls back to the dense path - and that is the normal case, not the
     # exception: the FPS number sits so high up that the layer origin becomes
     # negative (y=88 with pad=96). That made the cached path even SLOWER than
@@ -1653,7 +1653,7 @@ def _draw_stats_pillow_shared(img, stats, x0, y0, spacing,
                     draw.text((lx, ly), text, fill=(255, 255, 255, 255))
                     return
                 if text_style == 'Drop Shadow':
-                    # getrennte Layer, siehe _draw_text_styled
+                    # separate layers, see _draw_text_styled
                     off = max(2, sw)
                     if which == 'shadow':
                         draw.text((lx + off, ly + off), text, font=pil_font,

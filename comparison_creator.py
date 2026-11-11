@@ -812,7 +812,7 @@ class ComparisonCreatorDialog(QDialog):
             self.comparison_worker.cancel()
             self.log("⏹️ Cancelling comparison creation...")
             
-            # UI sofort updaten
+            # Update the interface at once
             self.start_btn.setEnabled(True)
             self.cancel_btn.setEnabled(False)
             self.progress_a.setVisible(False)
@@ -875,7 +875,7 @@ class ComparisonCreatorDialog(QDialog):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         
-        # Verstecke Progress Bars
+        # Hide the progress bars
         self.progress_a.setVisible(False)
         self.progress_b.setVisible(False)
         

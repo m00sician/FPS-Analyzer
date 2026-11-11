@@ -152,7 +152,7 @@ class TileAdaptiveDetector:
     def get_diagnostics(self) -> str:
         """Compact diagnostic line for console output."""
         if len(self.history) < 5:
-            return "detector: zu wenig Historie"
+            return "detector: too little history"
         s = np.sort(np.asarray(self.history, dtype=np.float64))
         n = len(s)
         p = lambda q: s[min(n - 1, int(n * q))]
@@ -205,7 +205,7 @@ class TileAdaptiveDetector:
         # there and return the fallback immediately - the low-motion test
         # further down was never reached (the cause of the original
         # "0 fps in a calm scene" bug).
-        # Bug, siehe Moduldocstring).
+        # bug, see the module docstring).
         genuine_bimodal = (
             upper_bot >= lower_top * self.CLUSTER_RATIO
             and lower_frac >= self.MIN_CLUSTER_FRAC

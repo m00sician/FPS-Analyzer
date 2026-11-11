@@ -187,7 +187,7 @@ class OptionsDialog(QDialog):
         )
         layout.addWidget(self.baseline_fps_combo, 0, 3)
 
-        # Fade-Erkennung
+        # Fade detection
         from PyQt6.QtWidgets import QCheckBox, QSpinBox
         self.fade_check = QCheckBox("Fade / blend detection (exclude uniform transitions)")
         self.fade_check.setToolTip(
@@ -221,7 +221,7 @@ class OptionsDialog(QDialog):
         layout.addWidget(self.save_data_check, 2, 0, 1, 4)
 
         # Abweichungs-Marker
-        self.deviation_check = QCheckBox("Abweichungs-Marker (roter Block oben rechts)")
+        self.deviation_check = QCheckBox("Deviation marker (red block, top right)")
         self.deviation_check.setToolTip(
             "Shows a red block in the top right corner for as long as the\n"
             "footage deviates from the baseline value - that is, as soon as a\n"
@@ -233,7 +233,7 @@ class OptionsDialog(QDialog):
         )
         layout.addWidget(self.deviation_check, 3, 0, 1, 2)
 
-        layout.addWidget(QLabel("Mindest-Einblendzeit:"), 3, 2)
+        layout.addWidget(QLabel("Minimum display time:"), 3, 2)
         self.deviation_hold_spin = QSpinBox()
         self.deviation_hold_spin.setRange(0, 2000)
         self.deviation_hold_spin.setSingleStep(50)
@@ -245,6 +245,23 @@ class OptionsDialog(QDialog):
             "0 = exactly as long as the deviation. Default 150 ms."
         )
         layout.addWidget(self.deviation_hold_spin, 3, 3)
+
+        # YUV render path
+        self.yuv_check = QCheckBox("YUV render path (faster, source resolution only)")
+        self.yuv_check.setToolTip(
+            "Hands the decoded frames over as raw YUV instead of letting the\n"
+            "decoder convert them to BGR itself. That conversion is the most\n"
+            "expensive single step of the decode at 4K and used to run in the\n"
+            "ONE reader thread; here it runs in the render workers, in\n"
+            "parallel. The encoder pipe also carries half the bytes.\n\n"
+            "Measured decoder throughput at 4K: 73 instead of 53.7 fps.\n"
+            "Measured fidelity: untouched image areas stay about twice as\n"
+            "close to the source as on the BGR path.\n\n"
+            "Only takes effect when the output resolution matches the source\n"
+            "and the parallel render pass is on. Otherwise the standard path\n"
+            "runs and says so in the log."
+        )
+        layout.addWidget(self.yuv_check, 4, 0, 1, 4)
 
         return box
 
@@ -265,6 +282,7 @@ class OptionsDialog(QDialog):
         self.fade_buffer_spin.setValue(int(getattr(a, 'fade_buffer_ms', 2000)))
         self.save_data_check.setChecked(bool(getattr(a, 'save_analysis_data', False)))
         self.deviation_check.setChecked(bool(getattr(a, 'deviation_marker', False)))
+        self.yuv_check.setChecked(bool(getattr(a, 'render_yuv', False)))
         self.deviation_hold_spin.setValue(int(getattr(a, 'deviation_marker_hold_ms', 150)))
 
         # Load custom grid values from the current template (if custom is active)
@@ -329,9 +347,10 @@ class OptionsDialog(QDialog):
         a.fade_buffer_ms = self.fade_buffer_spin.value()
         a.save_analysis_data = self.save_data_check.isChecked()
         a.deviation_marker = self.deviation_check.isChecked()
+        a.render_yuv = self.yuv_check.isChecked()
         a.deviation_marker_hold_ms = self.deviation_hold_spin.value()
 
-        # (Farben, Liniendicke, Smoothing, Update-Intervall → Layout Editor)
+        # (colours, line thickness, smoothing, update interval -> Layout Editor)
 
         # ── Persist ────────────────────────────────────────────────────
         if hasattr(a, 'save_current_settings'):

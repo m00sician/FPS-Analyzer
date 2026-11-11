@@ -273,6 +273,7 @@ class FPSAnalyzer(QMainWindow):
         self.fade_buffer_ms = saved_settings.get('fade_buffer_ms', 2000)
         self.save_analysis_data = saved_settings.get('save_analysis_data', False)
         self.deviation_marker = saved_settings.get('deviation_marker', False)
+        self.render_yuv = saved_settings.get('render_yuv', False)
         self.stats_panel_config = saved_settings.get('stats_panel_config')
         self.deviation_marker_hold_ms = saved_settings.get('deviation_marker_hold_ms', 150)
         self.fps_line_thickness = saved_settings.get('fps_line_thickness')
@@ -402,7 +403,7 @@ class FPSAnalyzer(QMainWindow):
                 'frametime_combo', 'sensitivity_combo', 'baseline_fps_combo'
             ]
             
-            # Signale blockieren
+            # Block the signals
             for widget_name in widgets_to_block:
                 if hasattr(self, widget_name):
                     getattr(self, widget_name).blockSignals(True)
@@ -568,6 +569,7 @@ class FPSAnalyzer(QMainWindow):
                 'fade_buffer_ms': getattr(self, 'fade_buffer_ms', 2000),
                 'save_analysis_data': getattr(self, 'save_analysis_data', False),
                 'deviation_marker': getattr(self, 'deviation_marker', False),
+                'render_yuv': getattr(self, 'render_yuv', False),
                 'stats_panel_config': getattr(self, 'stats_panel_config', None),
                 'source_fps': getattr(self, 'video_fps', 60.0) or 60.0,
                 'deviation_marker_hold_ms': getattr(self, 'deviation_marker_hold_ms', 150),
@@ -1062,7 +1064,7 @@ class FPSAnalyzer(QMainWindow):
         # Save settings so CUDA stays enabled on the next start
         self.save_current_settings()
         
-        # Status im Log anzeigen
+        # Show the status in the log
         cuda_status = "ENABLED 🚀" if self.use_cuda_checkbox.isChecked() else "DISABLED"
         self.log(f"CUDA Acceleration: {cuda_status}")
     def toggle_frametime_graph(self):
@@ -1077,7 +1079,7 @@ class FPSAnalyzer(QMainWindow):
     def export_png_alpha_sequence(self):
         """🎬 Export a PNG alpha sequence for Premiere Pro - NEW SIMPLE VERSION"""
         try:
-            # Den neuen einfachen Exporter importieren
+            # Import the new simple exporter
             from png_overlay_exporter import export_png_overlay_sequence
             
             # Just call the function - it takes care of everything
@@ -1226,6 +1228,7 @@ class FPSAnalyzer(QMainWindow):
                 'fade_buffer_ms': getattr(self, 'fade_buffer_ms', 2000),
                 'save_analysis_data': getattr(self, 'save_analysis_data', False),
                 'deviation_marker': getattr(self, 'deviation_marker', False),
+                'render_yuv': getattr(self, 'render_yuv', False),
                 'stats_panel_config': getattr(self, 'stats_panel_config', None),
                 'source_fps': getattr(self, 'video_fps', 60.0) or 60.0,
                 'deviation_marker_hold_ms': getattr(self, 'deviation_marker_hold_ms', 150),
@@ -1701,7 +1704,7 @@ class FPSAnalyzer(QMainWindow):
                 return
 
         output_file, _ = QFileDialog.getSaveFileName(
-            self, "Ausgabe speichern", "", "Video (*.mp4)")
+            self, "Save output", "", "Video (*.mp4)")
         if not output_file:
             return
 

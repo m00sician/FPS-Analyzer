@@ -46,6 +46,10 @@ one, while subtle motion accumulates.
 - PNG sequence export with alpha, for compositing in an NLE
 - Fade detection, so cuts to black aren't counted as frozen frames
 - Direct NVENC pipe encoding (HEVC)
+- Optional YUV render path: the decoder hands over raw YUV instead of
+  converting to BGR itself, which moves the most expensive step of the decode
+  out of the single reader thread and into the parallel render workers
+  (measured decoder throughput at 4K: 73 instead of 53.7 fps)
 
 ---
 
@@ -93,9 +97,9 @@ Or on Windows, `start.bat`.
 3. Pick the baseline frame rate the game targets
 4. Start the analysis
 
-The overlay layout lives under **Tools → Layout Editor**, detection settings and
-the deviation marker under **Tools → Options**, and the alternative info-box
-presentation under **Tools → Stats Panel**.
+The overlay layout lives under **Tools → Layout Editor**, detection settings,
+the deviation marker and the YUV render path under **Tools → Options**, and the
+alternative info-box presentation under **Tools → Stats Panel**.
 
 ---
 

@@ -323,7 +323,7 @@ def render_dual_fps_graph(
                 cv2.polylines(overlay, [pts], False, color, line_thick, cv2.LINE_AA)
             return
 
-        # Rollendes Fenster (Fallback)
+        # Rolling window (fallback)
         n = len(seq)
         if n < 2:
             return
@@ -339,7 +339,7 @@ def render_dual_fps_graph(
     _draw_line(fps_a, color_a)
     _draw_line(fps_b, color_b)
 
-    # Playhead-Mittellinie
+    # Playhead centre line
     if playhead_index is not None:
         cx = gx + gw // 2
         pth = max(1, int(2 * (h / 2160.0)))
@@ -506,13 +506,13 @@ def render_combined_video(
             displayed_a = round(sum(disp_buf_a) / len(disp_buf_a))
             displayed_b = round(sum(disp_buf_b) / len(disp_buf_b))
 
-            # Graph-Linien gehen via cv2.polylines DIREKT aufs RGB-Canvas
+            # The graph lines go straight onto the RGB canvas via cv2.polylines
             # (no internal colour swap like _draw_text_bebas does) so the BGR
             # colours are turned into RGB here, or A/B would look swapped.
             color_a_rgb = (int(color_a[2]), int(color_a[1]), int(color_a[0]))
             color_b_rgb = (int(color_b[2]), int(color_b[1]), int(color_b[0]))
 
-            # Draw dual graph — DF-Playhead-Stil (volle Sequenzen + aktueller Index)
+            # Draw the dual graph - DF playhead style (full sequences + current index)
             render_dual_fps_graph(
                 canvas_rgb, fps_a, fps_b,
                 label_a, label_b,
@@ -532,7 +532,7 @@ def render_combined_video(
 
             out_bgr = cv2.cvtColor(canvas_rgb, cv2.COLOR_RGB2BGR)
             writer.write(out_bgr)
-            # Vorschau-Frame gelegentlich weiterreichen
+            # Pass a preview frame on now and then
             if preview_cb is not None and frame_idx % 30 == 0:
                 try:
                     preview_cb(out_bgr)
@@ -726,7 +726,7 @@ class DualComparisonWorker(QThread):
         )
 
         if self._cancelled:
-            self.finished.emit(False, "❌ Abgebrochen")
+            self.finished.emit(False, "❌ Cancelled")
             return
 
         if ok:

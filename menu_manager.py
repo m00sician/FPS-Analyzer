@@ -291,7 +291,7 @@ class MenuManager:
         try:
             import torch
         except ImportError:
-            torch = None   # optional, siehe fps_analyzer_main
+            torch = None   # optional, see fps_analyzer_main
         import cv2
         import sys
         from PyQt6.QtCore import QT_VERSION_STR

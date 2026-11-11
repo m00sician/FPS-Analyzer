@@ -143,7 +143,7 @@ def probe_video(path, samples=40, crop_frac=0.5, progress_cb=None,
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     if total < 2:
         cap.release()
-        return [], "❌ Zu wenige Frames"
+        return [], "❌ Too few frames"
 
     idxs = np.linspace(int(total * 0.03), int(total * 0.97),
                        min(samples, total)).astype(np.int64)
@@ -199,7 +199,7 @@ def probe_video(path, samples=40, crop_frac=0.5, progress_cb=None,
     for r in results:
         tag = " [native/recon]" if r['native_or_recon'] else ""
         if r.get('unreliable'):
-            tag += " [wenig Detail — unsicher]"
+            tag += " [little detail - uncertain]"
         lines.append(f"     {r['frame']:6d} → {r['width_est']:4d} x "
                      f"{r['height_est']:4d}{tag}")
     return results, "\n".join(lines)

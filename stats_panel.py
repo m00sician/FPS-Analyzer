@@ -212,7 +212,7 @@ def _text_w(draw, s, size):
         return len(str(s)) * size // 2
 
 
-# ── Statischer Layer ─────────────────────────────────────────────────────────
+# ── Static layer ─────────────────────────────────────────────────────────────
 
 _STATIC_CACHE = {}
 _STATIC_LOCK = threading.Lock()
@@ -258,12 +258,12 @@ def build_static_layer(cfg, s):
         y += bh
     layer[:, :, 3] = 255
 
-    # Abgerundete Ecken
+    # Rounded corners
     radius = int(round(g.get('corner_radius', DEFAULTS['corner_radius']) * s))
     mask = _rounded_mask(w, h, radius)
     layer[:, :, 3] = (mask.astype(np.float32) * opacity).astype(np.uint8)
 
-    # Texte
+    # Text
     if PILLOW:
         pil = PILImage.fromarray(layer, 'RGBA')
         draw = PILDraw.Draw(pil)
@@ -271,7 +271,7 @@ def build_static_layer(cfg, s):
         def sz(k):
             return max(6, int(round(g.get(k, DEFAULTS[k]) * s)))
 
-        # Titel
+        # Title
         ty, th = geo['title'][0]
         _text(draw, (pad, ty + th // 2), cfg['title']['text'],
               sz('title_size'), hex_to_rgb(cfg['title']['color']), anchor='lm')
@@ -378,7 +378,7 @@ def _draw_graph(canvas, x0, y0, gw, gh, seq, idx, vmin, vmax, color,
                       color, thickness, cv2.LINE_AA)
 
 
-# ── Panel rendern ────────────────────────────────────────────────────────────
+# ── Render the panel ─────────────────────────────────────────────────────────
 
 def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
                  source_fps=60.0, ft_scale=None):
@@ -412,7 +412,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     ph, pw = layer.shape[:2]
     px, py = panel_origin(cfg, s)
 
-    # Beschnitt am Bildrand
+    # Clipping at the image edge
     x1, y1 = max(0, px), max(0, py)
     x2, y2 = min(w_img, px + pw), min(h_img, py + ph)
     if x2 <= x1 or y2 <= y1:
@@ -420,7 +420,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     sx, sy = x1 - px, y1 - py
     cw, ch = x2 - x1, y2 - y1
 
-    # ── 1. Statischen Layer blenden (premultipliziert, siehe _premultiply)
+    # ── 1. Blend the static layer (premultiplied, see _premultiply)
     roi = frame_rgb[y1:y2, x1:x2].astype(np.float32)
     roi *= inv_a[sy:sy + ch, sx:sx + cw]
     roi += pre[sy:sy + ch, sx:sx + cw]

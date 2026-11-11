@@ -64,7 +64,7 @@ class LayoutCanvas(QWidget):
 
         self._handle_size = 10           # resize handle size in widget px
 
-        # ── Live-Preview (echtes Overlay-Rendering) ──
+        # ── Live preview (real overlay rendering) ──
         self._preview_analyzer = None    # reference to the analyzer (renderer + frame)
         self._preview_bg = None          # np.ndarray: video frame (BGR) as preview background
         self._preview_pixmap = None      # rendered overlay as a QPixmap
@@ -95,7 +95,7 @@ class LayoutCanvas(QWidget):
             # A frame from the middle (more representative than the first)
             cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total // 2))
             ret, frame = cap.read()
-            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)   # Position wiederherstellen
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)   # restore the position
             return frame if ret else None
         except Exception as e:
             print(f"LayoutEditor Preview: Frame-Load fehlgeschlagen: {e}")
@@ -130,7 +130,7 @@ class LayoutCanvas(QWidget):
             layout_cfg = analyzer.layout_manager.convert_to_overlay_positions(
                 self._layout, fw, fh) if hasattr(analyzer, 'layout_manager') else None
 
-            # Settings/Template holen
+            # Fetch the settings/template
             settings = analyzer.get_current_settings() if hasattr(analyzer, 'get_current_settings') else {}
             template_config = settings.get('template_config') or {
                 'fps_graph_template': settings.get('fps_graph_template'),
@@ -979,7 +979,7 @@ class LayoutEditorDialog(QDialog):
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json
         path, _ = QFileDialog.getSaveFileName(
-            self, "Layout speichern", "layout.json", "JSON (*.json)")
+            self, "Save layout", "layout.json", "JSON (*.json)")
         if not path:
             return
         try:
@@ -989,7 +989,7 @@ class LayoutEditorDialog(QDialog):
             }
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
-            QMessageBox.information(self, "Gespeichert", f"Layout gespeichert:\n{path}")
+            QMessageBox.information(self, "Saved", f"Layout saved:\n{path}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Saving failed:\n{e}")
 
@@ -998,14 +998,14 @@ class LayoutEditorDialog(QDialog):
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json
         path, _ = QFileDialog.getOpenFileName(
-            self, "Layout laden", "", "JSON (*.json)")
+            self, "Load layout", "", "JSON (*.json)")
         if not path:
             return
         try:
             with open(path, encoding='utf-8') as f:
                 data = json.load(f)
             lay = data.get('layout', {})
-            # Normalisieren (Listen statt Tupel, visible-Default)
+            # Normalise (lists instead of tuples, visible default)
             self._layout = {
                 k: {'position': list(v['position']), 'size': list(v['size']),
                     'visible': v.get('visible', True)}
@@ -1055,7 +1055,7 @@ class LayoutEditorDialog(QDialog):
             self.parent_analyzer.layout_manager.set_current_layout(save_layout)
 
             # Save overlay style - as an analyzer attribute; persistence is handled
-            # save_current_settings() weiter unten
+            # save_current_settings() further down
             style = self._style_panel.get_style()
             self.parent_analyzer.overlay_style = style
 

@@ -79,7 +79,7 @@ class BatchProcessorThread(QThread):
 
             # Create worker for this item
             self.current_worker = AnalysisWorker(item.input_path, item.output_path, self.settings)
-            # Worker legt Vorschau-Frames in ein Attribut (Timer im Dialog liest es)
+            # The worker puts preview frames into an attribute (a timer in the dialog reads it)
             self.current_worker._latest_preview = None
             def _stash_preview(fb, wk=self.current_worker):
                 wk._latest_preview = fb

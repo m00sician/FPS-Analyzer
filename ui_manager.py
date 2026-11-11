@@ -477,7 +477,7 @@ class UIManager:
         self.parent.show_frametime_checkbox.setChecked(True)
         self.parent.show_frametime_checkbox.setVisible(False)
         
-        # --- ZEILE 0 ---
+        # --- ROW 0 ---
 
         # Output resolution
         settings_layout.addWidget(QLabel('📺 Output Resolution:'), 0, 0)

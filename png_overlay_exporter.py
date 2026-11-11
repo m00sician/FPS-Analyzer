@@ -169,7 +169,7 @@ class PNGExportWorker(AnalysisWorker):
             frame_reader = AsyncFrameReader(cap)
 
             # ----------------------------------------------------------
-            # Haupt-Loop
+            # Main loop
             # ----------------------------------------------------------
             while current_frame_number < actual_end:
                 if self.is_cancelled:
@@ -189,7 +189,7 @@ class PNGExportWorker(AnalysisWorker):
                 is_duplicate = self.is_frame_duplicate_corrected(gray, prev_frame_gray)
                 self.detection_window.append(not is_duplicate)
 
-                # FPS-Berechnung (Rolling Window)
+                # FPS computation (rolling window)
                 win = len(self.detection_window)
                 if win >= 4:
                     effective_fps = (sum(self.detection_window) / win) * source_fps
@@ -340,7 +340,7 @@ class PNGExportDialog(QDialog):
         # Buttons
         btn_row = QHBoxLayout()
 
-        self.start_btn = QPushButton("🚀 Export starten")
+        self.start_btn = QPushButton("🚀 Start export")
         self.start_btn.clicked.connect(self._start)
         self.start_btn.setStyleSheet("""
             QPushButton {
@@ -353,7 +353,7 @@ class PNGExportDialog(QDialog):
         """)
         btn_row.addWidget(self.start_btn)
 
-        self.cancel_btn = QPushButton("⏹ Abbrechen")
+        self.cancel_btn = QPushButton("⏹ Cancel")
         self.cancel_btn.clicked.connect(self._cancel)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setStyleSheet("""
@@ -383,7 +383,7 @@ class PNGExportDialog(QDialog):
 
     def _start(self):
         output_dir = QFileDialog.getExistingDirectory(
-            self, "PNG-Sequenz Speicherort",
+            self, "PNG sequence location",
             os.path.dirname(self.video_path)
         )
         if not output_dir:

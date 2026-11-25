@@ -427,10 +427,25 @@ class StatsPanelDialog(QDialog):
         fn = getattr(self.analyzer, 'toggle_analysis', None)
         if callable(fn):
             self.accept()
-            fn()
+            self._run_as_panel_encode(fn)
         else:
             QMessageBox.information(self, "Applied",
                                     "Settings saved.")
+
+    def _run_as_panel_encode(self, fn):
+        """
+        Start an encode that shows the panel - and only the panel.
+
+        The main window reads the request while it collects its settings. The
+        flag is cleared again in any case: if the start is abandoned on the way
+        (no file chosen, segment question answered with No), it must not
+        linger and turn the NEXT ordinary encode into a panel encode.
+        """
+        self.analyzer._panel_encode_request = True
+        try:
+            fn()
+        finally:
+            self.analyzer._panel_encode_request = False
 
     def _cancel_encode(self):
         w = getattr(self.analyzer, 'analysis_worker', None)
@@ -452,7 +467,7 @@ class StatsPanelDialog(QDialog):
         fn = getattr(self.analyzer, 'encode_from_data', None)
         if callable(fn):
             self.accept()
-            fn()
+            self._run_as_panel_encode(fn)
             return
         QMessageBox.information(
             self, "Not available",

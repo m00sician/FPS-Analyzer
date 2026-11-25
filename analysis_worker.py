@@ -1012,12 +1012,15 @@ class AnalysisWorker(QThread):
         template_config.setdefault('source_fps',
                                    self.settings.get('source_fps', 60.0))
         
-        # Create template_config if it is not defined
-        if not template_config:
-            template_config = {
-                'fps_graph_template': self.settings.get('fps_graph_template'),
-                'frametime_template': self.settings.get('frametime_template')
-            }
+        # The grid values from Options travel in these two templates. They
+        # used to be added only "if template_config is empty" - which stopped
+        # being true the moment source_fps was put in two lines further up, so
+        # the renderer never saw them and fell back to 60/30/0 and
+        # 16.7/25/33.3 whatever was entered.
+        template_config.setdefault('fps_graph_template',
+                                   self.settings.get('fps_graph_template'))
+        template_config.setdefault('frametime_template',
+                                   self.settings.get('frametime_template'))
         # Always merge the overlay style + line thickness from the settings,
         # so Layout Editor settings reach the renderer
         if 'overlay_style' not in template_config:

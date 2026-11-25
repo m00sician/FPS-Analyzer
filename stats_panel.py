@@ -45,21 +45,27 @@ except Exception:  # pragma: no cover
 BAND_DARK = (0x2b, 0x2b, 0x2b)
 BAND_LIGHT = (0x44, 0x44, 0x44)
 
+# 'style' is the version of this look. Saved configurations carry a copy of
+# the geometry; when the look changes, an old copy would keep overriding the
+# new values forever. normalize_config therefore drops saved geometry whose
+# style number differs (position excepted).
 DEFAULTS = {
-    'x': 40, 'y': 40, 'width': 460,
+    'style': 2,
+    'x': 40, 'y': 40, 'width': 480,
     'opacity': 0.88,
-    'corner_radius': 14,
-    'pad_x': 14,
-    'title_h': 40,
-    'fps_h': 76,
-    'graph_h': 62,
-    'row_h': 34,
-    'ft_graph_h': 46,
-    'title_size': 26,
-    'fps_size': 54,
-    'stat_size': 20,
-    'row_size': 21,
-    'line_thickness': 2,
+    'corner_radius': 16,
+    'pad_x': 24,             # left/right inset of text and graphs
+    'graph_pad_y': 12,       # air above and below a graph line
+    'title_h': 46,
+    'fps_h': 104,
+    'graph_h': 76,
+    'row_h': 40,
+    'ft_graph_h': 64,
+    'title_size': 24,
+    'fps_size': 58,
+    'stat_size': 19,
+    'row_size': 20,
+    'line_thickness': 1.25,  # 1 px at 1080p, 2-3 px at 4K
 }
 
 MAX_EXTRA_LINES = 3          # in addition to the fixed console/version row
@@ -130,7 +136,12 @@ def normalize_config(cfg):
     out['extra_lines'] = lines
 
     geo = dict(DEFAULTS)
-    geo.update(cfg.get('geometry') or {})
+    saved = cfg.get('geometry') or {}
+    if saved.get('style') == DEFAULTS['style']:
+        geo.update(saved)
+    else:
+        # Geometry from an older look: keep only where the panel sits.
+        geo.update({k: saved[k] for k in ('x', 'y') if k in saved})
     out['geometry'] = geo
     return out
 
@@ -234,7 +245,6 @@ def build_static_layer(cfg, s):
     Bands, corners and all unchanging text as an RGBA layer.
 
     Built once per configuration and reused for every frame after that.
-    wiederverwendet.
     """
     key = _static_key(cfg, s)
     with _STATIC_LOCK:
@@ -284,7 +294,7 @@ def build_static_layer(cfg, s):
         _text(draw, (half + pad // 2, fy + fh // 2), cfg['version']['text'],
               sz('row_size'), hex_to_rgb(cfg['version']['color']), anchor='lm')
 
-        # Zusatzzeilen
+        # Extra rows
         for (ry, rh), fields in zip(geo.get('extra', []), cfg['extra_lines']):
             if len(fields) == 1 and fields[0].get('wide'):
                 _text(draw, (pad, ry + rh // 2), fields[0]['text'],
@@ -362,7 +372,7 @@ def _draw_graph(canvas, x0, y0, gw, gh, seq, idx, vmin, vmax, color,
 
     if center_line:
         cy = y0 + gh // 2
-        cv2.line(canvas, (x0, cy), (x0 + gw - 1, cy), (110, 110, 110), 1, cv2.LINE_AA)
+        cv2.line(canvas, (x0, cy), (x0 + gw - 1, cy), (96, 96, 96), 1, cv2.LINE_AA)
 
     seg = []
     for i in range(GRAPH_WINDOW):
@@ -381,7 +391,7 @@ def _draw_graph(canvas, x0, y0, gw, gh, seq, idx, vmin, vmax, color,
 # ── Render the panel ─────────────────────────────────────────────────────────
 
 def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
-                 source_fps=60.0, ft_scale=None):
+                 source_fps=60.0, ft_scale=None, fps_max=None):
     """
     Blend the panel into the image. `frame_rgb` is modified in place.
 
@@ -394,12 +404,13 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     time 920x652 pixels run through PIL and several numpy copies even though
     over 80% of the area stays unchanged.
 
-    cfg      – Konfiguration (siehe default_config / normalize_config)
+    cfg      - configuration (see default_config / normalize_config)
     fps_seq  - the complete FPS sequence
     ft_seq   - the complete frame time sequence
-    idx      – aktueller Frame-Index (Playhead)
+    idx      - current frame index (playhead)
     stats    - {'fps': {'avg','min','max'}} for the statistics row
     ft_scale - (min_ms, max_ms) for the frame time graph
+    fps_max  - top of the FPS graph; defaults to the source frame rate
     """
     if not cfg or not cfg.get('enabled'):
         return frame_rgb
@@ -433,6 +444,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
         return max(6, int(round(g.get(k, DEFAULTS[k]) * s)))
     pad = max(2, int(round(g.get('pad_x', DEFAULTS['pad_x']) * s)))
     thick = max(1, int(round(g.get('line_thickness', DEFAULTS['line_thickness']) * s)))
+    gpad = max(2, int(round(g.get('graph_pad_y', DEFAULTS['graph_pad_y']) * s)))
 
     fps_col = hex_to_rgb(cfg.get('fps_color', '#FFFFFF'))
     ft_col = hex_to_rgb(cfg.get('ft_color', '#FFFFFF'))
@@ -452,7 +464,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
             pil = PILImage.fromarray(band, 'RGB')
             draw = PILDraw.Draw(pil)
             oy = (py + by) - ty1     # band top edge relative to the crop
-            _text(draw, (pad, oy + int(bh * 0.42)),
+            _text(draw, (pad, oy + int(bh * 0.40)),
                   '--' if cur is None else f"{cur:.0f}",
                   sz('fps_size'), fps_col, anchor='lm')
             if stats and stats.get('fps'):
@@ -462,7 +474,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
                 txt = '   '.join(f"{k}: {v:.0f}" for k, v in parts
                                  if isinstance(v, (int, float)) and v >= 0)
                 if txt:
-                    _text(draw, (pad, oy + int(bh * 0.82)), txt,
+                    _text(draw, (pad, oy + int(bh * 0.80)), txt,
                           sz('stat_size'), stat_col, anchor='lm')
             frame_rgb[ty1:ty2, x1:x2] = np.array(pil)
 
@@ -471,7 +483,8 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
     # instead of a copy of the whole panel.
     inner_w = cw - 2 * pad
     for kind, seq, lo, hi, col, centre, inv in (
-            ('fps_graph', fps_seq, 0.0, float(source_fps) * 1.02, fps_col, True, False),
+            ('fps_graph', fps_seq, 0.0,
+             float(fps_max) if fps_max else float(source_fps), fps_col, True, False),
             ('ft_graph', ft_seq,
              (ft_scale[0] if ft_scale else 0.0),
              (ft_scale[1] if ft_scale else 1000.0 / max(1e-6, source_fps) * 4),
@@ -485,7 +498,7 @@ def render_panel(frame_rgb, cfg, fps_seq, ft_seq, idx, stats=None,
             continue
         band = np.ascontiguousarray(frame_rgb[gy1:gy2, x1:x2])
         oy = (py + by) - gy1
-        _draw_graph(band, pad, oy + 2, inner_w, bh - 4, seq, idx,
+        _draw_graph(band, pad, oy + gpad, inner_w, bh - 2 * gpad, seq, idx,
                     float(lo), float(hi), col, thick, center_line=centre,
                     invert=inv)
         frame_rgb[gy1:gy2, x1:x2] = band

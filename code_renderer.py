@@ -1108,6 +1108,28 @@ class CodeRenderer:
         self._fps_scale = (fps_map_x, fps_map_f)
         self._ft_scale  = (ft_map_x, ft_map_f)
 
+        # ── Stats panel mode ────────────────────────────────────────────────
+        # The panel is a display mode OF ITS OWN, not an addition: when it is
+        # active, the frame shows the footage and the panel and nothing else -
+        # no graphs, no FPS number, no statistics, no marker. It is only ever
+        # active for an encode started from the stats panel window (see
+        # fps_analyzer_main._take_panel_request); every other encode gets no
+        # panel configuration at all and renders the Layout Editor overlay.
+        if stats_panel_config and stats_panel_config.get('enabled'):
+            try:
+                from stats_panel import render_panel as _render_panel
+                _src_fps = float((template_config or {}).get('source_fps', 60.0) or 60.0)
+                _render_panel(overlay, stats_panel_config,
+                              full_fps_seq, full_ft_seq, playhead_index,
+                              stats=precomputed_stats, source_fps=_src_fps,
+                              ft_scale=(float(ft_min), float(ft_max_val)),
+                              fps_max=float(fps_max))
+            except Exception as _e:
+                if not getattr(self, '_panel_err_logged', False):
+                    print(f"⚠️ Could not draw the stats panel: {_e}")
+                    self._panel_err_logged = True
+            return overlay
+
         # Font sizes
         scale = min(w / 1920, h / 1080)
         # Text boost (e.g. comparison mode: larger title/labels for legibility)
@@ -1303,23 +1325,6 @@ class CodeRenderer:
         t_debug['statistics'] = time.perf_counter() - t0
 
         # ── Timing ─────────────────────────────────────────────────────────────
-        # ── Stats panel (alternative display mode) ──────────────────────────
-        # Drawn after the graphs so it sits on top. When it is active the
-        # classic graphs are normally switched off - but that is decided by
-        # the layout, not by the renderer.
-        if stats_panel_config and stats_panel_config.get('enabled'):
-            try:
-                from stats_panel import render_panel as _render_panel
-                _src_fps = float((template_config or {}).get('source_fps', 60.0) or 60.0)
-                _render_panel(overlay, stats_panel_config,
-                              full_fps_seq, full_ft_seq, playhead_index,
-                              stats=precomputed_stats, source_fps=_src_fps,
-                              ft_scale=getattr(self, '_ft_panel_scale', None))
-            except Exception as _e:
-                if not getattr(self, '_panel_err_logged', False):
-                    print(f"⚠️ Could not draw the stats panel: {_e}")
-                    self._panel_err_logged = True
-
         # ── Deviation marker ────────────────────────────────────────────────
         # A red block in the top right corner for as long as the footage
         # deviates from the baseline value. Deliberately drawn at the very

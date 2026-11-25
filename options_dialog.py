@@ -103,17 +103,21 @@ class OptionsDialog(QDialog):
         self.fps_grid_edit.setPlaceholderText("e.g. 60,30,0 or 60,50,40,30,20")
         self.fps_grid_edit.setToolTip(
             "Comma-separated FPS values for grid lines + labels.\n"
-            "The highest value defines the scale (max_fps)."
+            "The highest value defines the scale (max_fps).\n"
+            "Prefix a value with x (e.g. 60,x45,30) to keep its grid line\n"
+            "but hide its number."
         )
         layout.addWidget(self.fps_grid_edit, 0, 1)
 
         # Frame-Time grid values
         layout.addWidget(QLabel("Frame time values (ms):"), 1, 0)
         self.ft_grid_edit = QLineEdit("16.7,33.3,100")
-        self.ft_grid_edit.setPlaceholderText("z.B. 16.7,33.3,100")
+        self.ft_grid_edit.setPlaceholderText("e.g. 16.7,33.3,100 or 0,16.7,25,33.3,50")
         self.ft_grid_edit.setToolTip(
             "Comma-separated frame time values in ms for grid lines + labels.\n"
-            "Smallest value at the top, largest at the bottom."
+            "Smallest value at the top, largest at the bottom.\n"
+            "Prefix a value with x (e.g. 16.7,x25,33.3) to keep its grid\n"
+            "line but hide its number."
         )
         layout.addWidget(self.ft_grid_edit, 1, 1)
 

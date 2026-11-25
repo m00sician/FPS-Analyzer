@@ -275,6 +275,7 @@ class FPSAnalyzer(QMainWindow):
         self.deviation_marker = saved_settings.get('deviation_marker', False)
         self.render_yuv = saved_settings.get('render_yuv', False)
         self.stats_panel_config = saved_settings.get('stats_panel_config')
+        self._panel_encode_request = False   # set by the stats panel window
         self.deviation_marker_hold_ms = saved_settings.get('deviation_marker_hold_ms', 150)
         self.fps_line_thickness = saved_settings.get('fps_line_thickness')
         self.graph_smooth_window = saved_settings.get('graph_smooth_window', 1)
@@ -845,6 +846,29 @@ class FPSAnalyzer(QMainWindow):
 
             self.log(f"❌ Could not open Batch Processor: {e}")
 
+    def _take_panel_request(self, settings):
+        """
+        Put the stats panel into `settings` if - and only if - this encode was
+        started from the stats panel window.
+
+        The request is a one-shot flag: the window sets it right before it
+        triggers the encode and clears it again afterwards. The panel
+        configuration itself stays saved, so the window opens with the same
+        fields next time, but an encode started from the main window (or the
+        batch processor, or the PNG export) never shows it.
+        """
+        wanted = bool(getattr(self, '_panel_encode_request', False))
+        self._panel_encode_request = False
+        cfg = getattr(self, 'stats_panel_config', None)
+        if wanted and cfg:
+            cfg = dict(cfg)
+            cfg['enabled'] = True
+            settings['stats_panel_config'] = cfg
+            self.log("🧩 Stats panel encode: footage + panel only")
+        else:
+            settings['stats_panel_config'] = None
+        return settings
+
     def open_stats_panel_dialog(self):
         """
         Open the stats panel window (Tools -> Stats Panel).
@@ -1230,7 +1254,9 @@ class FPSAnalyzer(QMainWindow):
                 'save_analysis_data': getattr(self, 'save_analysis_data', False),
                 'deviation_marker': getattr(self, 'deviation_marker', False),
                 'render_yuv': getattr(self, 'render_yuv', False),
-                'stats_panel_config': getattr(self, 'stats_panel_config', None),
+                # Never the panel here: it only belongs to an encode started
+                # from the stats panel window, see _take_panel_request.
+                'stats_panel_config': None,
                 'source_fps': getattr(self, 'video_fps', 60.0) or 60.0,
                 'deviation_marker_hold_ms': getattr(self, 'deviation_marker_hold_ms', 150),
                 'fps_line_thickness': getattr(self, 'fps_line_thickness', None),
@@ -1624,7 +1650,7 @@ class FPSAnalyzer(QMainWindow):
             segment_mode = True
         # Get settings (this also saves them and includes layout config and segment info)
 
-        settings = self.get_current_settings()
+        settings = self._take_panel_request(self.get_current_settings())
         # Start analysis
 
         if segment_mode:
@@ -1709,7 +1735,7 @@ class FPSAnalyzer(QMainWindow):
         if not output_file:
             return
 
-        settings = self.get_current_settings()
+        settings = self._take_panel_request(self.get_current_settings())
         settings['load_analysis_data'] = data_path
         settings['save_analysis_data'] = False   # do not save it again
 
@@ -1862,6 +1888,28 @@ def main():
 
     window = FPSAnalyzer()
     window.show()
+
+    # PyQt6 ABORTS the whole program when an exception escapes a slot (a menu
+    # handler, a button click) and sys.excepthook is still the default. On
+    # Windows that looks like the window freezing and then vanishing, and the
+    # traceback is lost. With a hook of our own the error is printed, written
+    # to the log and shown - and the program keeps running.
+    def _report_exception(exc_type, exc, tb):
+        import traceback
+        text = ''.join(traceback.format_exception(exc_type, exc, tb))
+        print(text, file=sys.stderr)
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        try:
+            window.log(f"❌ Unexpected error: {exc_type.__name__}: {exc}")
+            QMessageBox.critical(
+                window, 'Unexpected error',
+                f'{exc_type.__name__}: {exc}\n\n'
+                'The program keeps running. The full traceback is in the '
+                'console window.')
+        except Exception:
+            pass
+    sys.excepthook = _report_exception
     # Enhanced success messages
 
     # Run application

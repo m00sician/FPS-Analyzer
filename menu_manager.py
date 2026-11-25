@@ -294,8 +294,11 @@ class MenuManager:
             torch = None   # optional, see fps_analyzer_main
         import cv2
         import sys
-        from PyQt6.QtCore import QT_VERSION_STR
-        from PyQt6 import PYQT_VERSION_STR
+        # PYQT_VERSION_STR lives in QtCore. It used to be imported from the
+        # PyQt6 package itself, where it does not exist - the ImportError was
+        # raised inside this menu handler, and PyQt6 aborts the whole program
+        # on an unhandled exception in a slot.
+        from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR
         
         info = f"""🖥️ System Information
 

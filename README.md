@@ -53,16 +53,32 @@ one, while subtle motion accumulates.
 
 ---
 
+## Installation (Windows)
+
+Run **`install.bat`**. It sets everything up inside the project folder:
+
+1. finds Python 3.10+ (and offers to install it via winget if it is missing)
+2. creates a virtual environment in `.venv`
+3. installs the packages from `requirements.txt`
+4. checks for FFmpeg (and offers to install it via winget if it is missing)
+5. optionally installs PyTorch with CUDA
+
+Afterwards start the tool with **`start.bat`**. Running `install.bat` again is
+safe - it reuses what is already there.
+
 ## Requirements
 
 - **Python 3.10+** (the code uses `X | Y` type annotations)
 - **FFmpeg** on your `PATH`, or `ffmpeg.exe` next to the scripts.
-  It is deliberately not bundled — see *Note on FFmpeg* below.
-- An NVIDIA GPU for NVDEC/NVENC acceleration (optional; everything works
-  without one, just slower)
+  It is deliberately not bundled - see *Note on FFmpeg* below.
+- An NVIDIA GPU with a current driver for NVDEC/NVENC acceleration (optional;
+  everything works without one, just slower)
+
+Manual setup, or on Linux/macOS:
 
 ```bash
 pip install -r requirements.txt
+python fps_analyzer_main.py
 ```
 
 PyTorch is optional and only used for CUDA detection and the GPU blender.
@@ -79,8 +95,8 @@ put it on your `PATH` or drop it next to the scripts.
 
 ### Fonts
 
-The overlay uses **Bebas Neue**. If it isn't installed the tool falls back to an
-OpenCV font automatically — it will look different, but nothing breaks.
+The overlay uses **Bebas Neue**, which ships with the project in `fonts/`
+(SIL Open Font License, see `fonts/OFL.txt`). Nothing needs to be installed.
 
 ---
 
@@ -90,7 +106,7 @@ OpenCV font automatically — it will look different, but nothing breaks.
 python fps_analyzer_main.py
 ```
 
-Or on Windows, `start.bat`.
+Or on Windows, `start.bat` (uses the `.venv` created by `install.bat`).
 
 1. Open a video
 2. Optionally mark a segment (click the timeline, then set start/end points)

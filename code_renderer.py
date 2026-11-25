@@ -185,6 +185,9 @@ def _find_font(size: int):
             if platform.system() == "Windows"
             else ["/usr/share/fonts/", "/usr/local/share/fonts/",
                   os.path.expanduser("~/.fonts/")])
+    # The bundled copy in fonts/ comes FIRST: the overlay then looks the same
+    # on every machine, whether or not Bebas Neue is installed system-wide.
+    dirs.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts") + "/")
     candidates = []
     for d in dirs:
         candidates += glob.glob(d + "**/*.ttf", recursive=True)

@@ -320,11 +320,12 @@ class FPSAnalyzer(QMainWindow):
     def get_bebas_font_path(self):
         """Get Bebas Neue font path with multiple fallbacks"""
         possible_paths = [
+            # The bundled copy first, so every machine renders the same
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "BebasNeue-Regular.ttf"),
             # Windows paths
             "C:/Windows/Fonts/BebasNeue-Regular.ttf",
             "C:/Windows/Fonts/BebasNeue.ttf",
-            # Relative paths
-            os.path.join(os.path.dirname(__file__), "fonts", "BebasNeue-Regular.ttf"),
+            os.path.expanduser("~/AppData/Local/Microsoft/Windows/Fonts/BebasNeue-Regular.ttf"),
             # Linux/Mac paths
             "/usr/share/fonts/truetype/bebas/BebasNeue-Regular.ttf",
             os.path.expanduser("~/.fonts/BebasNeue-Regular.ttf")
